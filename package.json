@@ -1,5 +1,5 @@
 {
-  "name": "pi-synapse",
+  "name": "@wjunhere/pi-synapse",
   "version": "0.1.0",
   "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
   "type": "module",
@@ -39,6 +39,10 @@
     "visualization"
   ],
   "license": "MIT",
+  "author": "wjun",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wjunhere/pi-synapse.git"
