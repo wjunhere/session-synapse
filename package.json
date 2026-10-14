@@ -1,0 +1,46 @@
+{
+  "name": "pi-synapse",
+  "version": "0.1.0",
+  "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "pi-synapse": "bin/pi-synapse.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm run check",
+    "check": "tsc -p jsconfig.json",
+    "prepare": "npm run build",
+    "test": "node --test test/*.test.js",
+    "verify": "node scripts/verify-all.mjs",
+    "start": "node bin/pi-synapse.js start"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi",
+    "pi-web",
+    "pi-coding-agent",
+    "session",
+    "canvas",
+    "synapse",
+    "visualization"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

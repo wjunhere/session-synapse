@@ -1,0 +1,21 @@
+name: ci
+
+# Only the host-independent checks run here.
+#
+# The browser suites (scripts/verify-*.mjs) need a Chromium download and a
+# running pi-web upstream to proxy to, so they stay local: `npm run verify`.
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

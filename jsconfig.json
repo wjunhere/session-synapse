@@ -1,0 +1,34 @@
+{
+  // Turns on real type checking for this project.
+  //
+  // Without a jsconfig/tsconfig the TypeScript language server reports only
+  // SYNTAX errors for .js files — `checkJs` is off by default — so a file with
+  // an undefined identifier or a call to a method that does not exist reads as
+  // "OK". Measured before this file existed: both mistakes came back clean.
+  //
+  // `include` covers the SHIPPED code (package.json `files`: src, bin). test/
+  // and scripts/ are left out on purpose: they are dev harness, several call
+  // `frame.evaluate()` with browser globals, and they import playwright-core by
+  // absolute `file:///` URL — together ~79 diagnostics that would hide a real
+  // one. Widen `include` to audit them; src+bin are at 0 problems.
+  //
+  // A language server picks up Node's types automatically; `tsc` does not, and
+  // TypeScript 7 no longer auto-includes @types packages either, so `types` is
+  // spelled out. Run it with `npm run check` (devDependencies: typescript,
+  // @types/node). Verified to fail on a real mistake — an undefined name and a
+  // call to a non-existent method in src/ both exit 1.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": ["src/**/*.js", "bin/**/*.js"],
+  "exclude": ["node_modules", ".pi-web-src"]
+}

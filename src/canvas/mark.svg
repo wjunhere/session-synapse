@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 26" fill="none" role="img" aria-label="pi-synapse">
+  <!-- The canvas idea in one glyph: one question fanning into two answers, which
+       merge back into a single session. Ink for the trunk, a spot pastel for the
+       diverging pair, so the mark matches the card and connector colours. -->
+  <g stroke="#111111" stroke-width="1.6" stroke-linecap="round">
+    <path d="M7 13h4M21 13h4"/>
+    <path d="M13 13c0-3.6 1.8-6 5.4-6M13 13c0 3.6 1.8 6 5.4 6"/>
+  </g>
+  <circle cx="6" cy="13" r="3.2" fill="#111111"/>
+  <circle cx="13.4" cy="7" r="1.8" fill="#5a4a86"/>
+  <circle cx="13.4" cy="19" r="1.8" fill="#1f6c9f"/>
+  <circle cx="26" cy="13" r="3.2" fill="#111111"/>
+</svg>

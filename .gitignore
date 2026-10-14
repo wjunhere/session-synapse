@@ -1,0 +1,32 @@
+# pi-web 上游源码（开发期参考，不纳入交付）
+.pi-web-src/
+
+# 端到端产物
+_e2e/
+*.png
+
+# 实例锁与写入临时文件（与画布数据同目录，不应提交）
+*.instance
+*.tmp
+
+# 探测/临时产物
+probe-*.mjs
+probe-*.cjs
+probe-*.txt
+polluted-*.jsonl
+*.backup.json
+# 一次性会话的 cwd（验证脚本用 PROBE_CWD 指向它）
+_btw_probe/
+_probe/
+
+# 依赖与构建
+node_modules/
+dist/
+coverage/
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
