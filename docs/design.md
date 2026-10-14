@@ -897,7 +897,7 @@ M4 进度（4 项拆开看）：
 
 | 项 | 状态 |
 |---|---|
-| `npm run verify` 一条命令 + CI | ✅ 已完成（§28；CI 只跑 check + test，需 `git init` + remote 后才生效） |
+| `npm run verify` 一条命令 + CI | ✅ 已完成（§28；CI 只跑 check + test，已在 `wjunhere/pi-synapse` 上跑通） |
 | `app.js` 拆分重构 | 🟡 第一刀完成（§29：7 个叶子模块 445 行已搬出，2334 → ~1900 行，19/19 回归绿）；渲染/交互/动作三层未搬 |
 | DSH adapter / 契约测试 | ⬜ 等用户拍板（两条路：真写 dsh-synapse adapter，或改成跑同一批 store 单测的最小契约测试） |
 | 发布 npm | ⬜ 等用户确认名字归属（registry 上 `pi-synapse` 是 Unpublished 状态），另缺 `repository`/`author` 字段 |
@@ -1598,7 +1598,8 @@ process` 用替换后的 `save()` 抛 ENOSPC 来守这条。
 `PROBE_CWD` 起 `bin/pi-synapse.js start` → 顺序跑 19 个套件（每个都带 `BASE`/`PROBE_CWD`/`CHROME_PATH`）→
 停服务 → `clean-probes.mjs --data <临时文件>` → 打一张表。每个套件的完整输出写到 `<run>/logs/`，**成功才删
 run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户自己启的比明确报错更糟），也不碰用户真实的
-`workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。
+`workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。仓库已建：`wjunhere/pi-synapse`
+（私有，main 跟踪 origin/main），首推即跑通（~15s）。
 
 ### 它第一次跑就抓出两个真问题
 
