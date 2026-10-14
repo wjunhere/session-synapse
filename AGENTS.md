@@ -122,6 +122,8 @@ node scripts/clean-probes.mjs             # 清掉探测留下的一切（工作
 
 单独跑脚本仍可以，但注意两件事：① `verify-branch` 与 `verify-session-removal` 结束时**会删掉 `PROBE_CWD`**，所以串行跑多个脚本前必须先 `mkdir -p` 回来（harness 在每个套件前重建它；少了这步的表现是 `POST /api/agent/new` 报 `Directory does not exist`，看起来像代理坏了）；② `clean-probes.mjs` 支持 `--data <path>`，把「画布工作区」那半指向隔离文件，会话目录与 pi-web 状态照旧清真实的。
 
+调试截图（`pi-synapse-verify-canvas.png` / `-btw.png` / `-navigation.png` / `-streaming-card.png`）与 `e2e-real-data` 的画布数据都写在**系统临时目录**，跑完不再在仓库根目录积尘（以前它们落在 `_nav.png` / `_btw/` / `_e2e/`，还会因为路径写死 `B:/vibe_program/…` 而在别的机器上直接失败）。
+
 ### 导航约定（改动前先读）
 
 - **点卡片本体 = 进详情视图**（定位到那一轮），**不跳 pi-web**。pi-web 入口是卡片 footer 的「pi-web」按钮和详情头部的「在 pi-web 中打开」，两者都是显式动作。`openSessionInHost` 是整页跳转，只能由这两个入口触发。

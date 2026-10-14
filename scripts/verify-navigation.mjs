@@ -5,6 +5,8 @@
 // 旧实现：点卡片调 openSessionInHost（整页跳走），详情默认落在顶部或记忆的
 // 旧偏移 —— 长会话打开后看到的是第一句提问，像从没被回答过。
 import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
@@ -167,6 +169,9 @@ console.log(anchorStable ? `PASS 落点扛得住投影轮询重渲染（偏移 $
 console.log(latestOk ? 'PASS 无锚点进入详情落在最新消息' : `FAIL 详情默认位置不对（共 ${latest?.total} 条，视区 ${JSON.stringify(latest?.visibleSeqs)}）`)
 console.log(btwOk === null ? 'SKIP btw 挂件（当前无侧问）' : btwPassed ? 'PASS btw 挂件进入详情落在最新消息' : 'FAIL btw 挂件进入详情位置不对')
 console.log('页面错误:', errors.length ? errors.slice(0, 3) : '无')
-await page.screenshot({ path: 'B:/vibe_program/pi-synapse/_nav.png', fullPage: false })
+// 截图写到系统临时目录：它是调试用的现场，不应在仓库根目录里积灰（曾经 `_nav.png` 一直躺着）。
+const shot = join(tmpdir(), 'pi-synapse-verify-navigation.png')
+await page.screenshot({ path: shot, fullPage: false })
+console.log('截图:', shot)
 await browser.close()
 process.exit(clickOk && anchorOk && anchorStable && latestOk && btwPassed ? 0 : 1)

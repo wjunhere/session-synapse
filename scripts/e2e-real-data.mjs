@@ -1,13 +1,15 @@
 // 端到端：用真实 pi 会话数据跑投影，报告每个工作区的卡片/工具统计。
-// 只读真实会话，只写入 _e2e/ 下的画布数据文件。
-import { rm } from 'node:fs/promises'
+// 只读真实会话；画布数据写在系统临时目录并删掉（曾经写死在仓库的 `_e2e/`，每跑一次留 80MB 残渣）。
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createPiAdapter, defaultAgentDir } from '../src/adapters/pi.js'
 import { Synapse } from '../src/synapse.js'
 
-await rm('B:/vibe_program/pi-synapse/_e2e', { recursive: true, force: true })
+const runDir = await mkdtemp(join(tmpdir(), 'pi-synapse-e2e-'))
 
 const adapter = createPiAdapter({ agentDir: defaultAgentDir() })
-const synapse = new Synapse({ adapter, dataFile: 'B:/vibe_program/pi-synapse/_e2e/workspaces.json' })
+const synapse = new Synapse({ adapter, dataFile: join(runDir, 'workspaces.json') })
 
 const t0 = Date.now()
 await synapse.start()
@@ -55,5 +57,5 @@ if (target !== undefined) {
   }
 }
 
-synapse.stop()
-await synapse.store.flush()
+await synapse.stop()
+await rm(runDir, { recursive: true, force: true })

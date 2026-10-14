@@ -7,6 +7,8 @@
 // 没写（或被动画层覆盖）同样是坏的。
 import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
 import { mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
@@ -173,6 +175,9 @@ console.log(settled ? 'PASS 回复结束后动效消失' : 'FAIL 回复结束后
 
 const ok = lit.length > 0 && blue.length === lit.length && animated && settled
 console.log('页面错误:', errors.length ? errors.slice(0, 3) : '无')
-await page.screenshot({ path: 'B:/vibe_program/pi-synapse/_stream.png', fullPage: false })
+// 截图写到系统临时目录：它是调试用的现场，不应在仓库根目录里积灰（曾经 `_stream.png` 一直躺着）。
+const shot = join(tmpdir(), 'pi-synapse-verify-streaming-card.png')
+await page.screenshot({ path: shot, fullPage: false })
+console.log('截图:', shot)
 await browser.close()
 process.exit(ok ? 0 : 1)

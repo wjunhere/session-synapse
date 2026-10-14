@@ -1,7 +1,8 @@
 // 用真实浏览器验证画布：注入的切换条、iframe 内的画布、卡片渲染。
 // playwright-core 来自全局 @playwright/mcp。
 import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
-import { mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 // 用已下载的 chromium 实体，避免 headless_shell 版本不匹配
@@ -26,7 +27,6 @@ console.log('侧边栏工作区条目:', await frame.locator('.sidebar [data-wor
 const text = (await frame.locator('body').innerText()).replaceAll(/\s+/g, ' ')
 console.log('画布文本:', text.slice(0, 400))
 console.log('错误:', errors.length ? errors.slice(0, 8) : '无')
-// 目录可能已被清理掉：截图前自己建，不要让整次验证因为写文件失败而判负
-await mkdir('B:/vibe_program/pi-synapse/_e2e', { recursive: true })
-await page.screenshot({ path: 'B:/vibe_program/pi-synapse/_e2e/map.png' })
+// 截图写到系统临时目录：不用为写文件先建目录，也不在仓库里留残渣（这些路径以前写死在 B:/…）
+await page.screenshot({ path: join(tmpdir(), 'pi-synapse-verify-canvas.png') })
 await browser.close()

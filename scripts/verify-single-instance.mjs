@@ -21,7 +21,7 @@ import { join } from 'node:path'
 const dir = await mkdtemp(join(tmpdir(), 'pi-synapse-single-'))
 const dataFile = join(dir, 'workspaces.json')
 const lockPath = `${dataFile}.instance`
-const CWD = 'B:/vibe_program/pi-synapse'
+const CWD = process.cwd()
 
 const results = []
 const check = (name, ok, detail = '') => {
