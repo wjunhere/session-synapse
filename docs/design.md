@@ -900,7 +900,7 @@ M4 进度（4 项拆开看）：
 | `npm run verify` 一条命令 + CI | ✅ 已完成（§28；CI 只跑 check + test，已在 `wjunhere/pi-synapse` 上跑通） |
 | `app.js` 拆分重构 | 🟡 第一刀完成（§29：7 个叶子模块 445 行已搬出，2334 → ~1900 行，19/19 回归绿）；渲染/交互/动作三层未搬 |
 | DSH adapter / 契约测试 | ⬜ 等用户拍板（两条路：真写 dsh-synapse adapter，或改成跑同一批 store 单测的最小契约测试） |
-| 发布 npm | ⬜ 等用户确认名字归属（registry 上 `pi-synapse` 是 Unpublished 状态），另缺 `repository`/`author` 字段 |
+| 发布 npm | ✅ 已发布 `@wjunhere/pi-synapse@0.1.0`（2026-10-14，public；裸名 `pi-synapse` 在 registry 上是 Unpublished 状态，故改用作用域包） |
 
 ### M1 具体任务清单（已按 M0 结论定稿）
 

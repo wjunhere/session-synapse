@@ -20,22 +20,19 @@ pi-web 让你看清一个会话，pi-synapse 让你看清所有会话之间的�
 
 ## 安装
 
-从源码运行：
+```bash
+npm install -g @wjunhere/pi-synapse   # 之后直接 `pi-synapse start`
+```
+
+从源码跑（开发）：
 
 ```bash
 git clone https://github.com/wjunhere/pi-synapse
 cd pi-synapse
 npm install          # 无运行时依赖，只为跑测试
+npm link             # 可选：把它装成一个命令
 node bin/pi-synapse.js start
 ```
-
-也可以用 `npm link` 把它装成一个命令：
-
-```bash
-npm link             # 之后直接 `pi-synapse start`
-```
-
-发布到 npm 后，全局安装只差一条：`npm install -g @wjunhere/pi-synapse`（当前尚未发布）。
 
 启动后打开 `http://127.0.0.1:30142/`。若 pi-web 已在运行，它会被反代到这个端口，顶部中间会出现「对话 / 会话地图」切换条。
 
