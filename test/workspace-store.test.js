@@ -645,3 +645,40 @@ test('a canvas-only thread is never removed by a session deletion', async () => 
     assert.equal(after.threads[0].sessionId, null)
   })
 })
+
+test('thread visibility is tri-state: hidden, pinned visible, and back to default', async () => {
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession(storedSession('sess-1', '/tmp/p'))
+    const workspaceId = (await store.list())[0].id
+    const first = (await store.get(workspaceId)).threads[0]
+    // Fresh projection carries NO `hidden` field: the canvas default decides.
+    assert.equal('hidden' in first, false)
+
+    await store.updateThread(first.id, { hidden: true })
+    assert.equal((await store.get(workspaceId)).threads[0].hidden, true)
+
+    await store.updateThread(first.id, { hidden: false })
+    assert.equal((await store.get(workspaceId)).threads[0].hidden, false)
+
+    // `null` clears the field again, handing the decision back to the default
+    // (the recent-activity window).
+    await store.updateThread(first.id, { hidden: null })
+    assert.equal('hidden' in (await store.get(workspaceId)).threads[0], false)
+
+    await assert.rejects(() => store.updateThread(first.id, { hidden: 'yes' }), /hidden 必须是布尔值/)
+  })
+})
+
+test('a hidden flag survives a reopen', async () => {
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession(storedSession('sess-1', '/tmp/p'))
+    const workspaceId = (await store.list())[0].id
+    const threadId = (await store.get(workspaceId)).threads[0].id
+    await store.updateThread(threadId, { hidden: true })
+
+    const reopened = new WorkspaceStore(dataFile)
+    assert.equal((await reopened.get(workspaceId)).threads[0].hidden, true)
+  })
+})

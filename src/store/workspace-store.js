@@ -190,6 +190,17 @@ export class WorkspaceStore {
       const { workspace, thread } = this.locateThread(threadId)
       if (input?.title !== undefined) thread.title = requiredText(input.title, MAX_TITLE_LENGTH, 'title')
       if (input?.position !== undefined) thread.position = positionOf(input.position)
+      // Visibility is TRI-state: `true` hides the cards, `false` pins them
+      // visible (an old session the user wants on the canvas), and clearing the
+      // field hands the decision back to the canvas's own default (the
+      // recent-activity window). A boolean alone could not express the third
+      // state, so a user who brought an old session back would have it
+      // disappear again on the next render.
+      if (input?.hidden !== undefined) {
+        if (input.hidden === null) delete thread.hidden
+        else if (typeof input.hidden !== 'boolean') throw new InputError('hidden 必须是布尔值或 null')
+        else thread.hidden = input.hidden
+      }
       thread.updatedAt = new Date().toISOString()
       workspace.updatedAt = thread.updatedAt
       return structuredClone(thread)

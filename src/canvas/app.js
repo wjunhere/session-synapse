@@ -11,7 +11,7 @@
 import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera } from './state.js'
 import { escapeHtml, displayText, laneColor, formatTime, formatTokens, contextRing } from './format.js'
 import { inlineMarkdown, renderMarkdown } from './markdown.js'
-import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON } from './icons.js'
+import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH } from './storage.js'
 import { api, piWeb, post, openSessionInHost, hostCommand, hostEnsureSession, hostForkSession, hostBtwSession } from './host.js'
@@ -49,6 +49,86 @@ const threadById = threadId => state.workspace?.threads.find(thread => thread.id
 /** The projected context-window figure for a thread, or null when unknown. */
 const contextUsageFor = threadId => threadById(threadId)?.contextUsage ?? null
 const threadListTitle = thread => thread.sessionTitle ?? thread.title ?? questionFor(thread)
+
+// ---------------------------------------------------------------------------
+// Which threads get cards
+// ---------------------------------------------------------------------------
+// A workspace accumulates sessions and most of them are finished work, so the
+// canvas draws the ACTIVE ones and leaves the rest one click away in the sidebar
+// instead of drawing everything. Two rules, in this order:
+//
+//   1. an explicit choice by the user (`thread.hidden`, persisted in the canvas
+//      data file) always wins;
+//   2. otherwise the recent-activity window decides, so a quiet workspace gets
+//      quieter on its own instead of needing to be tidied up.
+//
+// Activity is read from the thread's own MESSAGES, never from `thread.updatedAt`:
+// the store bumps `updatedAt` on every UI write — dragging a card, renaming a
+// session — so a dragged old card would look recent and reappear the next time
+// the canvas reloaded.
+const RECENT_WINDOW_DAYS = 7
+const RECENT_WINDOW_MS = RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+
+/** Epoch ms of the thread's last message, or null when nothing is datable. */
+function threadActivityAt(thread) {
+  // A reply in flight is activity by definition, even before it lands in the
+  // session file (an optimistic message may carry no usable timestamp).
+  if (state.pendingReplies.has(thread.sessionId) || state.liveReplies.has(thread.sessionId)) return Date.now()
+  let latest = 0
+  for (const message of thread.messages ?? []) {
+    const at = Date.parse(message.at ?? '')
+    if (Number.isFinite(at) && at > latest) latest = at
+  }
+  if (latest === 0) {
+    const created = Date.parse(thread.createdAt ?? '')
+    if (Number.isFinite(created)) latest = created
+  }
+  return latest === 0 ? null : latest
+}
+
+/**
+ * `'shown'` | `'hidden'` | `'stale'`.
+ *
+ * `'stale'` is the default hiding (nothing recent happened) and `'hidden'` is
+ * the user's own choice. Keeping them apart is what lets the sidebar say WHY a
+ * row is off the canvas — 7 天没动静 vs 你自己收起来的。
+ */
+function threadVisibility(thread) {
+  if (thread.hidden === true) return 'hidden'
+  if (thread.hidden === false) return 'shown'
+  const activity = threadActivityAt(thread)
+  return activity === null || Date.now() - activity <= RECENT_WINDOW_MS ? 'shown' : 'stale'
+}
+
+const isThreadVisible = thread => threadVisibility(thread) === 'shown'
+
+/**
+ * The threads the canvas is drawing right now. Every card set — the map, the
+ * reveal/pan targets, the collapse pass — must come from THIS, or a hidden
+ * thread would still own a card slot, a camera target or a collapse root that
+ * nothing renders.
+ */
+const canvasThreads = () => (state.workspace?.threads ?? []).filter(isThreadVisible)
+
+/**
+ * Persist a thread's visibility and mirror it locally.
+ *
+ * `hidden` is tri-state in the data file, but this button only ever writes the
+ * two explicit states — it must not hand an old session back to the default
+ * window a moment after the user pulled it onto the canvas.
+ */
+async function setThreadVisibility(thread, hidden) {
+  try {
+    await api(`/synapse/api/threads/${thread.id}`, { method: 'PATCH', body: JSON.stringify({ hidden }) })
+    thread.hidden = hidden
+    state.error = ''
+  } catch (error) {
+    setError(error)
+    return
+  }
+  if (hidden) state.selectedCardId = null
+  render()
+}
 
 function openBtw(parent, anchorId = undefined) {
   if (parent.sessionId === null) return setError('该节点没有关联的会话')
@@ -111,6 +191,21 @@ function workspaceChoices() {
   return state.summaries.map(workspace => ({ id: workspace.id, title: workspace.title, path: workspace.cwd, sessionIds: [], source: 'projection' }))
 }
 
+/**
+ * Which workspace to open when the canvas has none: the most recently touched.
+ *
+ * Not `summaries[0]`: the list is in creation order, so the first entry is the
+ * OLDEST workspace — with the recent-activity default that is exactly the one
+ * most likely to have nothing to draw, and a first impression of an empty map
+ * reads as broken. `updatedAt` is the workspace's last activity (projection
+ * writes the newest message's time; the canvas writes `now` when the user
+ * rearranges it), which is the honest definition of 最近活跃.
+ */
+function defaultWorkspaceId() {
+  const latest = [...state.summaries].sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))[0]
+  return latest?.id ?? null
+}
+
 async function refreshSummaries({ renderAfter = true } = {}) {
   const before = JSON.stringify(state.summaries)
   const body = await api('/synapse/api/workspaces')
@@ -120,8 +215,10 @@ async function refreshSummaries({ renderAfter = true } = {}) {
   if (state.selectedHostWorkspaceId === null && current !== null && !state.summaries.some(item => item.id === current)) state.workspace = null
   const selected = state.summaries.find(item => item.id === state.selectedHostWorkspaceId)
   if (selected !== undefined && (changed || state.workspace === null)) await openWorkspace(selected.id, { renderAfter })
-  else if (state.workspace === null && state.summaries.length > 0) await openWorkspace(state.summaries[0].id)
-  else if (renderAfter && changed && canReplaceView()) render()
+  else if (state.workspace === null) {
+    const fallback = defaultWorkspaceId()
+    if (fallback !== null) await openWorkspace(fallback)
+  } else if (renderAfter && changed && canReplaceView()) render()
   return changed
 }
 
@@ -134,7 +231,7 @@ async function openWorkspace(id, { renderAfter = true } = {}) {
   state.workspace = body.workspace
   const currentThread = currentHostThread(state.workspace.threads)
   state.activeId = currentThread?.id ?? (state.workspace.threads.some(thread => thread.id === state.activeId) ? state.activeId : state.workspace.threads[0]?.id ?? null)
-  if (currentThread !== undefined) revealConversationThread(conversationCards(state.workspace.threads), currentThread.id)
+  if (currentThread !== undefined) revealConversationThread(conversationCards(canvasThreads()), currentThread.id)
   if (renderAfter && canReplaceView()) render()
 }
 
@@ -296,7 +393,7 @@ async function submitDraft() {
   const images = draft?.images ?? []
   // An image with no words is a complete message (a pasted screenshot).
   if (draft === null || (text === '' && images.length === 0)) return
-  const branchPosition = draft.kind === 'branch' && state.workspace !== null ? draftPlacement(conversationCards(state.workspace.threads))?.position : undefined
+  const branchPosition = draft.kind === 'branch' && state.workspace !== null ? draftPlacement(conversationCards(canvasThreads()))?.position : undefined
   draft.sending = true
   state.error = ''
   render()
@@ -1146,10 +1243,41 @@ function syncCanvasViewport() {
   }
 }
 
+/**
+ * Empty the card model when the map has nothing to draw.
+ *
+ * The card set is read outside the render path too (`state.canvasCards` for the
+ * collapse pass, the connector cache, the reveal/pan targets), so leaving the
+ * last non-empty set behind means those readers keep working from cards the
+ * canvas no longer draws — measured as 「卡片还在」 for a session that had just
+ * been hidden.
+ */
+function clearCanvasCards() {
+  const empty = conversationGraphView([])
+  state.canvasCards = empty.cards
+  state.canvasCardsById = new Map()
+  state.canvasGraph = empty
+  state.mountedCardIds = new Set()
+}
+
 function renderCanvas() {
   const threads = state.workspace?.threads ?? []
-  if (threads.length === 0 && state.draft?.kind !== 'new') return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.sendMessage === true ? '新建一个会话，在画布上输入第一条消息。' : '在 pi-web 中开始一个会话后，它会作为一张卡片出现在这里。'}</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
-  const allCards = conversationCards(threads)
+  if (threads.length === 0 && state.draft?.kind !== 'new') {
+    clearCanvasCards()
+    return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.sendMessage === true ? '新建一个会话，在画布上输入第一条消息。' : '在 pi-web 中开始一个会话后，它会作为一张卡片出现在这里。'}</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
+  }
+  // Cards are built from the VISIBLE threads only: a hidden (or aged-out)
+  // session must not occupy a lane, a connector or a card slot. The sidebar
+  // still lists every thread, which is what makes the hiding reversible.
+  const visibleThreads = threads.filter(isThreadVisible)
+  if (visibleThreads.length === 0 && state.draft?.kind !== 'new') {
+    clearCanvasCards()
+    const stale = threads.filter(thread => threadVisibility(thread) === 'stale').length
+    const hidden = threads.length - stale
+    const reasons = [stale === 0 ? '' : `${stale} 个超过 ${RECENT_WINDOW_DAYS} 天没有活动`, hidden === 0 ? '' : `${hidden} 个被收起`].filter(reason => reason !== '').join('，')
+    return `<section class="empty-canvas"><strong>这个工作区暂时没有要显示的卡片</strong><p>${reasons}。在左侧「会话」列表里点眼睛图标可以把它们放回画布。</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
+  }
+  const allCards = conversationCards(visibleThreads)
   const graph = conversationGraphView(allCards)
   const cards = graph.cards
   state.canvasCards = cards
@@ -1165,7 +1293,7 @@ function renderCanvas() {
   const visible = visibleCardIds(cards)
   state.mountedCardIds = new Set(visible)
   const mounted = cards.filter(card => visible.has(card.id))
-  const widgets = btwWidgets(cards, threads, visible)
+  const widgets = btwWidgets(cards, visibleThreads, visible)
   return `<section class="canvas-view"><div class="canvas-viewport"><div class="canvas-content" style="transform:translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})"><svg class="connectors">${canvasConnectors(cards)}</svg><div class="cards-layer">${mounted.map(card => conversationCard(card, graph)).join('')}${widgets}${draftCard(cards)}</div></div></div></section>`
 }
 
@@ -1293,13 +1421,26 @@ function render() {
     : ''
   // The sidebar is an index, not a menu: each row carries its position in the
   // list, its kind, and a colour keyed to the thread's lane on the canvas.
-  const threadRows = threads.map((thread, index) => `<button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${laneColor(index)}"><span class="tree-dot"></span><span class="tree-index">${String(index + 1).padStart(2, '0')}</span><span class="tree-title">${escapeHtml(threadListTitle(thread))}</span>${thread.kind === 'btw' ? '<i class="tree-btw">btw</i>' : thread.parentId === null ? '' : '<i>分支</i>'}</button>`).join('')
+  const visibleCount = threads.filter(isThreadVisible).length
+  // 「在地图上的 / 全部」：只报总数、而画布上明显更少时看起来像 bug。
+  const countLabel = visibleCount === threads.length ? `${threads.length}` : `${visibleCount} / ${threads.length}`
+  const threadRows = threads.map((thread, index) => {
+    const visibility = threadVisibility(thread)
+    const off = visibility !== 'shown'
+    const action = off ? '显示这个会话的卡片' : '隐藏这个会话的卡片'
+    const reason = visibility === 'stale' ? `（${RECENT_WINDOW_DAYS} 天前没有活动，默认不显示）` : ''
+    // The badge slot carries one thing only — why this row looks the way it does.
+    const badge = visibility === 'stale' ? `<i class="tree-stale">${RECENT_WINDOW_DAYS} 天前</i>`
+      : thread.kind === 'btw' ? '<i class="tree-btw">btw</i>'
+        : thread.parentId === null ? '' : '<i>分支</i>'
+    return `<div class="tree-item${off ? ' is-off' : ''}"><button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${laneColor(index)}"><span class="tree-dot"></span><span class="tree-index">${String(index + 1).padStart(2, '0')}</span><span class="tree-title">${escapeHtml(threadListTitle(thread))}</span>${badge}</button><button class="tree-visibility" type="button" data-action="toggle-visibility" data-thread="${thread.id}" aria-pressed="${off ? 'true' : 'false'}" aria-label="${action}${reason}" title="${action}${reason}">${off ? EYE_OFF_ICON : EYE_ICON}</button></div>`
+  }).join('')
   const workspacePath = choices.find(item => item.id === selectedWorkspaceId)?.path ?? workspace?.cwd ?? null
   const mastheadLead = `<div class="topbar-lead"><span class="topbar-eyebrow">工作区</span><span class="topbar-title" title="${escapeHtml(workspacePath ?? '')}">${escapeHtml(workspace?.title ?? '未命名工作区')}</span></div>`
   // 切换「对话 / 会话地图」的唯一入口在宿主页面里（bridge 注入的那条，它同时
   // 悬浮在画布上方）。画布内不重复渲染一份：两个看起来一样的切换控件、一个
   // fixed 居中一个在顶栏栅格里，x 不同，用户会看到两个（已实际发生）。
-  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count">${threads.length}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar">${mastheadLead}${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
+  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar">${mastheadLead}${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
   installDragging()
   cacheCardConnectors()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
@@ -1671,12 +1812,16 @@ app.addEventListener('click', async event => {
     if (button.dataset.action === 'toggle-sidebar') { state.sidebarCollapsed = !state.sidebarCollapsed; render() }
     if (button.dataset.action === 'create-session') openNewSession()
     if (button.dataset.action === 'open-current' && state.currentSession !== null) openSessionInHost(state.currentSession.id)
+    if (button.dataset.action === 'toggle-visibility' && thread !== undefined) await setThreadVisibility(thread, isThreadVisible(thread))
     if (button.dataset.action === 'select-thread' && thread !== undefined) {
       state.mapCardSessionSwitches.clear()
       state.activeId = thread.id
       state.selectedCardId = null
       state.error = ''
-      if (state.workspace !== null) revealConversationThread(conversationCards(state.workspace.threads), thread.id)
+      // A thread whose cards are off the canvas (7 天没活动，或被收起) has nothing
+      // to pan to, so its row opens the transcript instead of looking dead.
+      if (state.mode === 'canvas' && !isThreadVisible(thread)) state.mode = 'thread'
+      if (state.workspace !== null) revealConversationThread(conversationCards(canvasThreads()), thread.id)
       // The sidebar is an index, so a row keeps the user's current view: on the
       // map it selects and pans to that thread's card, in the transcript it
       // switches to that conversation (and lands on its latest turn). Jumping
@@ -1697,7 +1842,7 @@ app.addEventListener('click', async event => {
       const cardId = button.dataset.card
       const collapsing = !state.collapsedCardIds.has(cardId)
       if (collapsing && state.workspace !== null) {
-        const allCards = conversationCards(state.workspace.threads)
+        const allCards = conversationCards(canvasThreads())
         const nextCollapsed = new Set(state.collapsedCardIds).add(cardId)
         const visibleCards = conversationGraphView(allCards, nextCollapsed).cards
         const visibleIds = new Set(visibleCards.map(card => card.id))
@@ -1805,7 +1950,7 @@ window.addEventListener('message', event => {
     const thread = currentHostThread()
     if (thread !== undefined) {
       state.activeId = thread.id
-      if (state.workspace !== null) revealConversationThread(conversationCards(state.workspace.threads), thread.id)
+      if (state.workspace !== null) revealConversationThread(conversationCards(canvasThreads()), thread.id)
     }
     if (previousId !== state.currentSession?.id && canReplaceView()) render()
     return

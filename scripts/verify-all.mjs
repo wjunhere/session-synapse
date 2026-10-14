@@ -59,6 +59,7 @@ const SUITES = [
   { script: 'verify-card-header.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-switch-bar.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-navigation.mjs', browser: true, needsService: true, timeoutMs: 300_000 },
+  { script: 'verify-visibility.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-send.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-streaming.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-streaming-card.mjs', browser: true, needsService: true, timeoutMs: 420_000 },

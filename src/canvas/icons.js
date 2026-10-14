@@ -31,3 +31,10 @@ export const ICON_PATHS = {
 export const closeIcon = (attributes = '') => `<svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" ${attributes}><path d="${ICON_PATHS.close}"/></svg>`
 export const RENAME_ICON = ICON('<path d="M10.5 2.5 13.5 5.5 6.5 12.5 3 13l.5-3.5z"/><path d="M9 4l3 3"/>')
 export const HOST_ARCHIVE_ICON = ICON('<rect x="2.5" y="3" width="11" height="3.25" rx="1"/><path d="M4 6.75v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-6"/><path d="M6.5 9h3"/>')
+
+// The sidebar's visibility toggle: an eye means "this session is on the canvas",
+// a slashed eye means "its cards are put away". The button shows the STATE and
+// its tooltip names the ACTION, so a glance at the list reads as a legend.
+const EYE_BODY = '<path d="M1.5 8s2.6-4.25 6.5-4.25S14.5 8 14.5 8s-2.6 4.25-6.5 4.25S1.5 8 1.5 8Z"/>'
+export const EYE_ICON = ICON(`${EYE_BODY}<circle cx="8" cy="8" r="2"/>`)
+export const EYE_OFF_ICON = ICON(`${EYE_BODY}<path d="M2.5 2.5 13.5 13.5"/>`)

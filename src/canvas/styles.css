@@ -356,6 +356,37 @@ kbd {
 .tree-dot { width: 5px; height: 5px; color: var(--ink-3); background: currentColor; }
 .tree-row { --thread-color: var(--ink-3); }
 .tree-row .tree-dot { background: var(--thread-color, var(--ink-3)); }
+
+/* A row is an index entry PLUS a visibility toggle. The toggle cannot live
+   inside the row button (nested buttons are invalid HTML, and the browser
+   silently drops the inner one), so the row is a wrapper holding two buttons;
+   `.tree-row[data-thread]` keeps its old meaning for the verification scripts. */
+.tree-item { display: flex; min-width: 0; align-items: center; gap: 2px; }
+.tree-item .tree-row { flex: 1; min-width: 0; }
+/* Off-canvas rows stay readable but clearly secondary: the dot keeps the lane
+   colour, the text steps back. */
+.tree-item.is-off .tree-row { color: var(--ink-3); }
+.tree-visibility {
+  display: grid;
+  flex: none;
+  width: 24px;
+  min-height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0;
+  color: var(--ink-3);
+  transition: background var(--speed) ease, color var(--speed) ease;
+}
+.tree-visibility:hover { background: var(--surface-hover); color: var(--ink); }
+.tree-visibility:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.tree-item.is-off .tree-visibility { color: var(--ink-2); }
+/* Icons in this app are sized per container — there is no global svg rule, and an
+   inline svg without width/height computes to 0×0 here (the button is fine, the
+   icon is invisible). Caught by looking at a screenshot, not by the behaviour
+   suites, so `verify-visibility` now measures it too. */
+.tree-visibility svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; }
 .tree-empty { margin: 0; padding: 4px 8px; color: var(--ink-3); font-size: 12px; }
 
 .sidebar-collapsed .sidebar { align-items: center; padding: 0 8px 8px; }

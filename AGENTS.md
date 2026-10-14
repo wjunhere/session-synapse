@@ -90,8 +90,8 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 105 个单测（投影 28 + 上下文 17 + 存储 31 + 实例锁 10 + pi-web 动作 15 + 会话对账 4）
-npm run verify                            # 全套回归：起服务 → 19 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
+npm test                                  # 107 个单测（投影 28 + 上下文 17 + 存储 33 + 实例锁 10 + pi-web 动作 15 + 会话对账 4）
+npm run verify                            # 全套回归：起服务 → 20 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 node scripts/e2e-real-data.mjs            # 真实数据投影，报告卡片/工具统计
 node scripts/verify-context.mjs           # 上下文占用 vs pi 自身算法（逐会话，容差 64 token）
@@ -107,6 +107,7 @@ node scripts/verify-switch-bar.mjs        # 视图切换入口只有一个可见
 node scripts/verify-streaming-card.mjs    # 进行中的卡片有蓝色动效（需传 PROBE_CWD）
 node scripts/verify-navigation.mjs        # 点卡片进详情（不跳 pi-web）+ 无锚点落在最新消息
 node scripts/verify-session-removal.mjs   # 会话删除后的对账（A 段可独立跑；B 段需服务 + PROBE_CWD）
+node scripts/verify-visibility.mjs        # 地图显示规则：7 天默认 + 侧栏眼睛按钮（需服务 + PROBE_CWD）
 node scripts/verify-image-paste.mjs       # 卡片内粘贴图片（需传 PROBE_CWD）
 node scripts/verify-streaming.mjs         # 流式「边写边显」（需传 PROBE_CWD）
 node scripts/verify-send.mjs              # 画布内发消息（需传 PROBE_CWD）
@@ -170,6 +171,10 @@ node scripts/clean-probes.mjs             # 清掉探测留下的一切（工作
 
 - **画布是一个 ES 模块图**（`app.html` 用 `<script type="module">`），模块作用域**不是**全局作用域：验证脚本读画布内部状态必须走画布显式暴露的句柄 `window.__synapse.state`（曾经可以裸读 `state`，拆模块后变成 `state is not defined`，而且报错在**脚本**里、不在画布里）。新增模块不用改路由：`/synapse/<name>.js` 由 `createAssetHandler` 的规则直接映射到 `src/canvas/`（名字限 `[a-z0-9-]`，防目录穿越）。
 - **本仓库的代码不写行尾分号，所以任何一行都不能以 `(` 或 `[` 开头。** `history.scrollRestoration = 'manual'` 后面接一行 `(window).__synapse = …` 会被解析成 `'manual'(window)` → 抛 `"manual" is not a function`，画布整页空白且**外层页面无任何报错**（只有 iframe 的 pageerror 有），排查成本极高。要么写成 `const x = …` 再赋值，要么前面补分号。
+- **地图只画「该显示的」会话。** `threadVisibility(thread)` 返回 `'shown' | 'hidden' | 'stale'`：`thread.hidden === true/false` （写进画布数据文件，由侧栏眼睛按钮 PATCH `/synapse/api/threads/:id` 设置）是用户的显式选择，优先；否则看**最近 7 天**（`RECENT_WINDOW_DAYS`）。**活跃时间从 `thread.messages` 里的 `at` 算，不用 `thread.updatedAt`** —— 拖动卡片/改名都会把 `updatedAt` 刷成 now，那样一张被拖过的老卡片会自己回到画布上。卡片集必须总是走 `canvasThreads()`（地图、reveal/pan 目标、折叠遍历共用），否则被收起的 thread 仍会占车道/镜头目标/折叠根。
+- **地图没有卡片时（`clearCanvasCards()`）必须把 `state.canvasCards` / `canvasGraph` / `mountedCardIds` 一并清空**：这几个值在渲染之外也被读（折叠、连接线缓存、reveal），留着上一份非空集合会让刚被收起的卡片看起来还在。空状态与「全部在 7 天之外」是两种文案。
+- **默认打开的工作区是 `updatedAt` 最新的那个**，不是 `summaries[0]`（后者按创建顺序，往往就是卡片最少的老工作区）。
+- **侧栏一行的结构是 `.tree-item` 包着两个按钮**：`.tree-row[data-thread]`（`data-action="select-thread"`，验证脚本点它选会话）与 `[data-action="toggle-visibility"][data-thread]`（眼睛）。按钮不能嵌套（HTML 会默默丢掉内层），所以包装层必须有。验证脚本：`scripts/verify-visibility.mjs`。
 - 类名与 `data-*` 是验证脚本的选元素契约，**改样式可以，改名字要同步改 `scripts/verify-*.mjs`**。
 - 颜色只承载语义（失败/侧问/工具数/上下文压力），新增颜色先问「它代表什么」。
 - 字体是本地随包的（`src/canvas/fonts/*.woff2`，只做拉丁子集，中文走系统字）。新增字体资源必须走 `createAssetHandler` 的 `binary` 分支，按 utf8 读会破坏 woff2。
