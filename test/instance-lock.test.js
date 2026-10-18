@@ -1,13 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { acquireInstanceLock, InstanceLockError } from '../src/store/instance-lock.js'
 
 async function withDir(run) {
-  const dir = await mkdtemp(join(tmpdir(), 'pi-synapse-lock-'))
+  const dir = await mkdtemp(join(tmpdir(), 'synapse-lock-'))
   try {
     await run(dir, join(dir, 'workspaces.json'))
   } finally {
@@ -16,15 +16,15 @@ async function withDir(run) {
 }
 
 /**
- * Start a process that a liveness check will accept as a pi-synapse instance.
+ * Start a process that a liveness check will accept as a synapse instance.
  *
  * The PID-existence test alone is not enough (Windows recycles PIDs), so the
  * holder's command line is also inspected. `process.ppid` cannot stand in for a
  * holder: it is the test runner, and the check correctly rejects it. This spawns
- * a real process carrying `pi-synapse` in its command line instead.
+ * a real process carrying `synapse` in its command line instead.
  */
 function spawnFakeHolder() {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'pi-synapse'], { stdio: 'ignore' })
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'synapse'], { stdio: 'ignore' })
   return {
     pid: child.pid,
     stop: () => new Promise(resolve => { child.once('exit', resolve); child.kill() }),
@@ -58,7 +58,7 @@ test('a live holder blocks a second instance', async () => {
         error => {
           assert.ok(error instanceof InstanceLockError)
           assert.equal(error.holder.pid, holder.pid)
-          assert.match(error.message, /另一个 pi-synapse 实例/)
+          assert.match(error.message, /另一个 synapse 实例/)
           return true
         },
       )
@@ -73,7 +73,7 @@ test('a recycled PID does not lock the user out', async () => {
   // dead holder's PID. Treating that as a live holder would refuse to start
   // forever with no way out, so the command line settles it.
   await withDir(async (_dir, dataFile) => {
-    // The test runner itself is alive but is NOT a pi-synapse instance.
+    // The test runner itself is alive but is NOT a synapse instance.
     await writeFile(`${dataFile}.instance`, `${JSON.stringify({ pid: process.ppid, port: 30142, startedAt: new Date().toISOString() })}\n`, 'utf8')
     const lock = await acquireInstanceLock(dataFile)
     assert.equal(lock.tookOver, true)
@@ -81,18 +81,82 @@ test('a recycled PID does not lock the user out', async () => {
   })
 })
 
-test('a very old lock is reclaimed even if its PID looks alive', async () => {
-  // The backstop for an unreadable command line: without it, a recycled PID on a
-  // platform where the check is unavailable would block every future start.
+test('a live holder is not reclaimed just because its lock looks old', async () => {
+  // The bug this test was written for: age used to be compared before asking
+  // whether the holder was ours, so an instance that had been up past the
+  // window was treated as abandoned **while it was running** and the next start
+  // took the lock away — two writers on one data file. A confirmed-live holder
+  // must never be aged out, however old the lock file is.
   await withDir(async (_dir, dataFile) => {
     const holder = spawnFakeHolder()
     try {
-      await writeFile(`${dataFile}.instance`, `${JSON.stringify({ pid: holder.pid, startedAt: '2020-01-01T00:00:00.000Z' })}\n`, 'utf8')
+      await writeFile(`${dataFile}.instance`, `${JSON.stringify({ pid: holder.pid, port: 30142, startedAt: '2020-01-01T00:00:00.000Z' })}\n`, 'utf8')
+      // Age the file itself too: the age signal is the lock's mtime.
+      await utimes(`${dataFile}.instance`, new Date(0), new Date(0))
+      await assert.rejects(
+        () => acquireInstanceLock(dataFile, { staleAfterMs: 1000 }),
+        error => error instanceof InstanceLockError && error.holder.pid === holder.pid,
+      )
+    } finally {
+      await holder.stop()
+    }
+  })
+})
+
+test('an unreadable command line still lets age reclaim the lock', async () => {
+  // The backstop the age bound exists for: when the holder's command line cannot
+  // be read, "that PID exists" proves nothing (Windows recycles PIDs), so an
+  // ancient lock must be reclaimable or the user is locked out forever.
+  // Simulated by taking `wmic` off PATH — the real state of a machine where the
+  // command line is unreadable, and what Windows 11 24H2 will ship by default.
+  await withDir(async (_dir, dataFile) => {
+    const holder = spawnFakeHolder()
+    const path = process.env.PATH
+    try {
+      await writeFile(`${dataFile}.instance`, `${JSON.stringify({ pid: holder.pid, startedAt: new Date().toISOString() })}\n`, 'utf8')
+      await utimes(`${dataFile}.instance`, new Date(0), new Date(0))
+      process.env.PATH = ''
       const lock = await acquireInstanceLock(dataFile, { staleAfterMs: 1000 })
       assert.equal(lock.tookOver, true)
       await lock.release()
     } finally {
+      process.env.PATH = path
       await holder.stop()
+    }
+  })
+})
+
+test('the heartbeat refreshes the lock so a long-running instance stays protected', async () => {
+  // Without a heartbeat the age bound creeps up on a *healthy* instance: its
+  // lock file's timestamp only ever gets older. Refreshing restamps it, so the
+  // instance stays protected for as long as it actually runs.
+  await withDir(async (_dir, dataFile) => {
+    const lock = await acquireInstanceLock(dataFile)
+    try {
+      const aged = new Date(Date.now() - 60 * 60 * 1000)
+      await utimes(lock.lockPath, aged, aged)
+      await lock.refresh()
+      const { mtimeMs } = await stat(lock.lockPath)
+      assert.ok(Date.now() - mtimeMs < 10_000, `mtime should be fresh, got ${new Date(mtimeMs).toISOString()}`)
+    } finally {
+      await lock.release()
+    }
+  })
+})
+
+test('refreshing a lock that is no longer ours does not touch it', async () => {
+  // A --force takeover (or a reclaimed lock) means two instances; the loser must
+  // not keep restamping a file it no longer owns and make it look fresh forever.
+  await withDir(async (_dir, dataFile) => {
+    const lock = await acquireInstanceLock(dataFile)
+    try {
+      await writeFile(lock.lockPath, `${JSON.stringify({ pid: process.ppid })}\n`, 'utf8')
+      await utimes(lock.lockPath, new Date(0), new Date(0))
+      await lock.refresh()
+      const { mtimeMs } = await stat(lock.lockPath)
+      assert.ok(Date.now() - mtimeMs > 1000, 'a lock owned by someone else must be left alone')
+    } finally {
+      await lock.release()
     }
   })
 })

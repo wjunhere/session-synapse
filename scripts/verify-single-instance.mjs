@@ -12,13 +12,19 @@
  *      zombie-instance failure mode that inflated the data file to 545 MB);
  *   3. after the holder is killed however it dies, a fresh start still succeeds
  *      without --force, because a stale lock is reclaimed automatically.
+ *
+ * And one that is not about staleness at all: 4. a lock that *looks* ancient
+ * must NOT be reclaimed while its holder is alive. Age is only the backstop for
+ * a holder whose command line cannot be read; when it applied to every holder, an
+ * instance that had been up past the window was treated as abandoned while it
+ * was running and the next start took its lock — two writers on one data file.
  */
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm, readFile, access } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, access, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const dir = await mkdtemp(join(tmpdir(), 'pi-synapse-single-'))
+const dir = await mkdtemp(join(tmpdir(), 'synapse-single-'))
 const dataFile = join(dir, 'workspaces.json')
 const lockPath = `${dataFile}.instance`
 const CWD = process.cwd()
@@ -74,7 +80,23 @@ await otherPort.settled()
 otherPort.child.kill('SIGKILL')
 check('换端口的第二个实例仍被拒绝', /已有实例正在使用这份画布数据/.test(otherPort.output()))
 
-// ---------- 4. the data file is not being written by anyone but the holder ----------
+// ---------- 4. a lock that LOOKS ancient is still not reclaimed while its holder lives ----------
+// Both age signals are aged: the payload's `startedAt` (what the stale check
+// used to use) and the file's mtime (what it uses now). A confirmed-live holder
+// must keep its lock regardless — this is the state a canvas reaches on its own
+// after a day of uptime, and getting it wrong ends with two instances rewriting
+// one data file.
+const liveLock = JSON.parse(await readFile(lockPath, 'utf8'))
+await writeFile(lockPath, `${JSON.stringify({ ...liveLock, startedAt: '2020-01-01T00:00:00.000Z' })}\n`, 'utf8')
+await utimes(lockPath, new Date(0), new Date(0))
+const aged = start(30223)
+await aged.settled()
+aged.child.kill('SIGKILL')
+check('锁看起来极旧但持有者活着时，第二个实例仍被拒绝', /已有实例正在使用这份画布数据/.test(aged.output()))
+const stillHeld = JSON.parse(await readFile(lockPath, 'utf8').catch(() => '{}'))
+check('锁仍归原实例所有（没被接管）', stillHeld.pid === first.child.pid, `lock=${stillHeld.pid} first=${first.child.pid}`)
+
+// ---------- 5. the data file is not being written by anyone but the holder ----------
 // The property is CONVERGENCE, not "no write in a fixed window". The holder
 // legitimately writes while it settles (the store coalesces projection writes
 // into one trailing flush, and a session file that changes under it gets
@@ -91,7 +113,7 @@ for (let i = 0; i < 20; i++) {
 const converged = sizes.length >= 3 && sizes.at(-1) === sizes.at(-2) && sizes.at(-2) === sizes.at(-3)
 check('无僵尸写入者（数据文件收敛不再变化）', converged, sizes.map(size => `${(size / 1e6).toFixed(1)}MB`).join(' → '))
 
-// ---------- 5. kill the holder however it dies; a fresh start must still work ----------
+// ---------- 6. kill the holder however it dies; a fresh start must still work ----------
 first.child.kill('SIGKILL')
 await new Promise(resolve => first.child.once('exit', resolve))
 check('持有者被杀后锁文件可能残留（Windows 上游限制）', true, `lock present: ${await exists(lockPath)}`)

@@ -193,7 +193,7 @@ try {
 } finally {
   await browser.close()
   // 一次性会话与其 cwd 必须清掉：它会污染会话目录、pi-web 的 projectOrder
-  // 和画布数据文件。清理放在停服后由调用方完成（见 AGENTS.md 探测纪律）。
+  // 和画布数据文件。清理放在停服后由调用方完成（见 docs/verification.md 探测纪律）。
   await rm(PROBE_CWD, { recursive: true, force: true }).catch(() => {})
 }
 

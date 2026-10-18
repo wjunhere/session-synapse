@@ -15,12 +15,16 @@
  *
  * STOP THE SERVER FIRST. The store keeps its state in memory and rewrites the
  * whole file on the next mutation, so cleaning while it runs just gets undone.
+ * The lock/temp half of the cleanup additionally refuses to touch files whose
+ * owner is still alive (see step 4), because getting that wrong once cost a live
+ * instance a save.
  *
- * Usage: node scripts/clean-probes.mjs [--dry-run]
+ * Usage: node scripts/clean-probes.mjs [--dry-run] [--data <path>]
  */
 import { readFileSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { commandLineLooksLikeOurs } from '../src/store/instance-lock.js'
 
 const DRY = process.argv.includes('--dry-run')
 /**
@@ -39,6 +43,48 @@ const agentDir = join(homedir(), '.pi', 'agent')
 const dataFile = dataOverride ?? join(agentDir, 'synapse', 'workspaces.json')
 const sessionsDir = join(agentDir, 'sessions')
 const stateFile = join(agentDir, 'pi-web-session-state.json')
+
+/**
+ * PID recorded in a leftover file, or `null` when its format carries none.
+ *
+ * The three shapes are the store's own: `<data>.instance` is a JSON payload
+ * written once at startup, `<data>.lock` is a bare PID written per save, and
+ * `<data>.<pid>.tmp` is the in-flight write. A corrupt one is treated as
+ * ownerless, which is what makes a corrupt lock reclaimable.
+ */
+function readPid(path) {
+  try {
+    const text = readFileSync(path, 'utf8')
+    if (text.trimStart().startsWith('{')) {
+      const pid = JSON.parse(text)?.pid
+      return Number.isInteger(pid) && pid > 0 ? pid : null
+    }
+    const pid = Number.parseInt(text, 10)
+    return Number.isInteger(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Is this PID a live synapse instance right now?
+ *
+ * `false` only when the process is definitely gone or definitely not ours. An
+ * unreadable command line counts as **alive**: leaving a stale lock behind is
+ * harmless (the next start reclaims it), stealing a live one is not.
+ */
+function ownerIsRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  if (pid === process.pid) return true
+  try {
+    // Signal 0 only performs the existence/permission check.
+    process.kill(pid, 0)
+  } catch (error) {
+    // EPERM means it exists but belongs to someone else.
+    if (error?.code !== 'EPERM') return false
+  }
+  return commandLineLooksLikeOurs(pid) !== false
+}
 
 /**
  * A path belongs to a probe when ANY of its segments starts with `_probe` or
@@ -104,11 +150,33 @@ if (existsSync(stateFile)) {
   writeJson(stateFile, web)
 }
 
-// 4. Locks and temp files: a killed writer always leaves them (AGENTS.md 坑 37).
-const synapseDir = join(agentDir, 'synapse')
-for (const name of readdirSync(synapseDir)) {
-  if (!/^workspaces\.json\.(instance|lock|\d+\.tmp)$/.test(name) && !/^workspaces\.json\.before-drop$/.test(name)) continue
-  if (!DRY) rmSync(join(synapseDir, name), { force: true })
+// 4. Locks and temp files: a *killed* writer always leaves them (docs/runtime.md 坑 37).
+//
+//    Two guards, each added after this step sabotaged a LIVE instance:
+//
+//      - 只碰**本次这份数据文件**的附属产物（`--data` 决定）。它以前写死扫
+//        `~/.pi/agent/synapse`，于是 `npm run verify`（`--data <临时文件>`）也会去删
+//        用户正在跑的那个实例的锁与临时文件。
+//      - 持有者还活着就不碰。删掉 `<data>.<pid>.tmp` 会让那次写入的 rename 报 ENOENT
+//        —— **那一笔保存直接丢掉**（实测：日志里就一行 rename 失败，工作区少了那次改动）；
+//        删掉 `<data>.instance` 更糟，它只在启动时写一次，于是实例从此裸奔
+//        （第二个实例可以同时写同一份文件，正是 docs/runtime.md 坑 36 的地形）。
+const dataDir = dirname(dataFile)
+const dataBase = basename(dataFile)
+for (const name of existsSync(dataDir) ? readdirSync(dataDir) : []) {
+  if (!name.startsWith(`${dataBase}.`)) continue
+  const suffix = name.slice(dataBase.length + 1)
+  const full = join(dataDir, name)
+  const owner = suffix === 'instance' || suffix === 'lock' ? readPid(full)
+    : /^\d+\.tmp$/.test(suffix) ? Number(suffix.slice(0, -4))
+      : suffix === 'before-drop' ? null
+        : undefined
+  if (owner === undefined) continue
+  if (owner !== null && ownerIsRunning(owner)) {
+    report.push(`留着 ${name}（持有者 ${owner} 还活着）`)
+    continue
+  }
+  if (!DRY) rmSync(full, { force: true })
   report.push(`清掉 ${name}`)
 }
 
