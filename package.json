@@ -6,6 +6,8 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./client": "./src/host/dsh/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "bin": {
@@ -15,9 +17,22 @@
     "src",
     "bin",
     "docs",
+    "cordis.patch.yml",
     "README.md",
     "LICENSE"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  },
   "scripts": {
     "build": "npm run check",
     "check": "tsc -p jsconfig.json",
@@ -27,7 +42,8 @@
     "start": "node bin/synapse.js start"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.19.0",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
   },
   "keywords": [
     "pi",
@@ -50,5 +66,8 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-home-paths": "^0.2.1-rc.2"
   }
 }

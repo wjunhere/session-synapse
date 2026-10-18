@@ -1,0 +1,92 @@
+# dsh desktop 适配
+
+> 同一张画布接进 DeepSeek Harness：desktop app（Electron 壳）与 `web` profile 共用一份插件代码。
+> 本篇只写「desktop 与 web 差在哪」「实测到哪些接口」，投影/画布/服务的通用规则仍在各自文档。
+
+相关：[architecture.md](architecture.md)（三层与 adapter 契约）、[host-integration.md](host-integration.md)（pi-web 那套的对标）、[runtime.md](runtime.md)、[verification.md](verification.md)
+
+## 1. dsh desktop 是什么（全部实测）
+
+- `D:\dsh\DeepSeek Harness.exe`：Electron 壳 + 内置 dsh 运行时 **0.2.1-rc.2**（在 `resources/app.asar!/dsh`）。
+- 壳把 harness 当子进程拉起，命令行是
+  `... app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\index.js <dsh 目录> <profile 目录> <runtime 目录>`，
+  其中 profile 目录 = `~/.dsh/profiles/desktop`，并给该子进程开 `--inspect=127.0.0.1:9230`（`dsh-experimental-inspector`，CDP target `dsh://host`）。
+- harness 进程里起的是**完整 web 栈**，不是另一套东西：`dsh-host-webserver` 监听 `127.0.0.1:43740`。
+  无 cookie 时 `/api/*` → 401；未注册的路径 → 404。
+- 渲染进程的文档 origin 是 `dsh-app://app`（自定义 scheme，注册为 `standard/secure/supportFetchAPI/corsEnabled/stream/codeCache`）。
+  壳的 `protocol.handle('dsh-app')` 只把 `/`、`/index.html`、`/assets/*`、`/favicon.svg`、`/manifest.webmanifest` 交给本地 dist，
+  **其余路径一律转发给 43740**（`forwardWebRequest`：删掉 `host`/`origin`/`cookie`/`sec-fetch-site`，注入 host cookie）。
+
+⇒ 插件注册的 webServer 路由、`/plugins/<pkg>/client.js`、iframe 里的相对 URL，在 desktop 全部按相对路径正常走通。
+**desktop 与 web 的差别只有 profile 文件本身**；上游 dsh-synapse README 写的「只支持 web profile」是它 patch 文件的写法，不是接口限制。
+
+## 2. 服务面
+
+host 半区（`export const inject = [...]`）：
+
+| 服务 | 用途 | 备注 |
+|---|---|---|
+| `ctx.webServer.register({ kind, path, handler })` | 注册 HTTP 路由 | 匹配顺序：精确 → 最长前缀 → fallback；handler 是原生 `(req, res)` |
+| `ctx.sessions` | 活会话 `list()` / `get(id)` / `snapshotEvents()` / `create()` / `fork()` | `ctx.on('session/created'\|'session/event')` 是增量来源 |
+| `ctx.sessionQuery` | **冷 + 活**会话读取：`listSessions` / `readSession` / `readSurface` / `readTitleSnapshots` / `traceSession` | sqlite 后端由 dsh-base + dsh-web-app 挂上，desktop 同样有 |
+
+client 半区：
+
+| 服务 | 用途 |
+|---|---|
+| `ctx.sessions` | `list.getSnapshot()` → `{ ids, byId }`，行字段 `id/displayTitle/title/cwd/parentId/running/blank/updatedAt`；`retain()` 后 `binding.session.prompt()` 发消息；`create()` / `fork()` |
+| `ctx.uiWorkspace` | `openSession(id)` 切到某会话的对话视图、`archiveSession()`、`forkSession()` |
+| `ctx.uiConversation` | `binding(id).target('chat')` 读流式正文（可选） |
+
+client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factory` 里只允许 `require` 平台种子词（`react`、`react/jsx-runtime`、`@deepseek-ai/dsh-client-ui-primitives` 等）。我们的画布不是 React，client 半区只用 DOM + `postMessage`，因此**不需要打包器**。
+
+## 3. 数据
+
+- 会话文件：`~/.dsh/sessions/<cwd 编码>--/<session-id>/session.v4.jsonl.zstd`；cwd 编码 `B:\vibe_program` → `--B-vibe_program--`。
+- 首行是 header：`{"type":"session","version":4,"id","createdAt","cwd","parentSession","isSeeded","origin","delegationDepth","agentPreset"}`。
+- 事件词表见 `@deepseek-ai/dsh-session/lib/types/known-event-types.js`（本版 58 种）。投影只认
+  `user/message`、`assistant/message`、`tool/call`、`tool/result`、`turn/start|end`、`step/start|end`、`todo/write`、`compaction/*`、`session/title`、`session/end-seed`（fork 切点）、`assistant/attempt`；其余不进卡片。
+- 画布数据文件：`$DSH_HOME/session-synapse/workspaces.json`（`$DSH_HOME` 优先于 `~/.dsh`）。
+  与上游 dsh-synapse 的 `$DSH_HOME/synapse/workspaces.json` **分开**，免得两个插件抢同一份数据的写权；要搬布局用 `synapse import --from`。
+
+## 4. 装进 desktop profile
+
+`dsh` CLI 明确拒绝 `--profile desktop`（`managed exclusively by the Electron application`），profile 三件套由 app 自己维护（每次改动留 `*.bak-<stamp>`）：
+
+1. `~/.dsh/profiles/desktop/package.json`：`dependencies` 加 `"session-synapse": "link:<repo>"`，`dsh.profile.bundles` 追加 `"session-synapse"`；
+2. 在该目录用运行时自带的 pnpm 安装：`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`；
+3. 重启 app。
+
+`$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh web`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
+
+## 5. 验证
+
+隔离实例（不碰真实会话）：
+
+```bash
+# 1) 用临时 home 建一个从官方 web 模板派生的 profile，并把插件装进去
+DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh rescue --from-default-profile web --dump-config
+DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh plugin --profile rescue add link:B:/vibe_program/session-synapse
+# 2) 启动（打印带 token 的 URL）
+DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh rescue --no-open --port 30144
+# 3) 断言
+curl -s 127.0.0.1:30144/synapse/api/status     # → {"adapter":"dsh",...}
+curl -s 127.0.0.1:30144/synapse/ | head        # → 画布 HTML
+```
+
+`dsh plugin add` 是标准的装插件动作：它改 profile 的 `package.json`（`dependencies` + `dsh.profile.bundles`）并跑 pnpm。
+
+浏览器侧（playwright，同 pi-web 套件那套）：带 `?token=` 打开首页 → 断言 `.synapse-switch button` 有 2 个、`.synapse-overlay iframe` 的 url 以 `/synapse/` 结尾、iframe 里 `#app` 有内容、`pageerror`/`console error` 为空。
+**新 home 首次启动会有引导弹窗**（「预览版说明」/「添加一个 API Key」），它的 mask 会拦住指针事件：脚本里用 `page.evaluate(() => el.click())` 发 DOM click，或先把弹窗点掉。
+
+desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片能跳会话。host realm 可调试：CDP `ws://127.0.0.1:9230/devtools/page/<id>`（target 是 `dsh://host`）。
+
+## 6. 坑（编号接仓库全局序列）
+
+44. **桌面不是另一套接口。** 判断「某能力 desktop 有没有」时先看 webServer 那条转发规则（§1），别按 README 的 profile 声明下结论：desktop 上 `webServer`、`/plugins/*`、iframe 相对 URL 全都在。
+45. **会话文件是多帧 zstd。** `zlib.zstdDecompressSync` 只解**第一帧**（实测 766 KB 的文件只拿到 header 一行）——append-only 日志每段一个 frame，必须逐帧解（DSH 自己用 `NodePrivateZstdFrameDecoder`）。在 host 里读冷会话一律走 `ctx.sessionQuery`，自己解文件只在离线场景用。
+46. **client 插件 apply 时 `document.body` 可能还不存在**（pi-web 那条注入路径踩过同一个坑）。挂 DOM 前先判空，缺了就等 `DOMContentLoaded`。
+47. **client bundle 只能 require 平台种子词**，不能 import 自己的相对模块（没有打包器就不行）。所以 client 半区必须是自足的单文件。
+48. **插件必须在 profile 里用「包的裸名」挂载。** 两处硬要求叠在一起：宿主 loader 按裸名解析模块，而 client 模块图的 `exactPackageSpecifier()` 会拒掉任何带 `/` 的 specifier（`session-synapse/dsh` → 客户端 bundle 永不出现，`/plugins/*` 返回 404，页面上只有宿主 UI 而没有切换条）。所以包的**主入口就得是插件**（与 dsh-synapse / dsh-skill-mcp-panel 同形）：`src/index.js` 在原有库导出之外再 re-export 插件的 `name`/`inject`/`apply`。
+49. **client bundle 的注册 id 是「包名」，不是 patch 里的 entry id。** 客户端模块图的行 id 取自解析到的 package name（`record.entry.id = packageName`），所以 `__ModuleLoader__.load({ id })` 要写 `session-synapse`；写 patch 的 `synapse` 会得到 “bundle loaded without registering …”。
+50. **`/plugins/<pkg>/client.js` 不是稳定 URL。** 启动图用 combo URL（`/plugins/??a/client.js,b/client.js&rev=…`），直连单资源路径会 404 —— 404 不能当成「客户端半区没加载」，要看首页 HTML 里的 `__DSH_BOOT__`。

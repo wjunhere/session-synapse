@@ -16,8 +16,8 @@
  * never reaches into pi-web's React internals.
  */
 ;(() => {
-  const SOURCE = 'pi-synapse-host'
-  const CHILD_SOURCE = 'pi-synapse'
+  const SOURCE = 'synapse-host'
+  const CHILD_SOURCE = 'synapse'
   const HOST_ID = 'pi-synapse-host'
   const CHROME_TOP = 'var(--pi-synapse-chrome-top, 0px)'
 

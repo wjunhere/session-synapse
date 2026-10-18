@@ -39,7 +39,7 @@ export async function piWeb(path, options = {}) {
 /** Ask the parent frame to switch pi-web's view. */
 export function post(type, payload = {}) {
   if (window.parent === window) return
-  window.parent.postMessage({ source: 'pi-synapse', type, ...payload }, window.location.origin)
+  window.parent.postMessage({ source: 'synapse', type, ...payload }, window.location.origin)
 }
 
 // Opening a session is a whole-page navigation: pi-web reads `?session=` only

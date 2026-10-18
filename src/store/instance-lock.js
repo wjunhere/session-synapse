@@ -96,13 +96,21 @@ function isAlive(pid) {
  * A false positive is harmless by comparison -- it only refuses to steal a lock,
  * and `--force` is the documented way out.
  *
+ * A host that runs Synapse INSIDE its own process cannot be recognised by that
+ * token, because the command line carries the host's program instead. Such a
+ * host passes its own `isOurs` matcher (`acquireInstanceLock` forwards it here);
+ * without one, a live DSH host holding the lock reads as a recycled PID and the
+ * next instance steals a lock that is very much alive.
+ *
  * Best effort. When the command line cannot be read (no wmic, a restricted
  * platform, a permission error) this returns null and the caller keeps the
  * existing, more conservative behaviour.
  *
+ * @param {number} pid
+ * @param {(command: string) => boolean} [isOurs]  matcher over the raw command line
  * @returns {boolean|null} true/false when known, null when undeterminable
  */
-export function commandLineLooksLikeOurs(pid) {
+export function commandLineLooksLikeOurs(pid, isOurs = synapseCommandLine) {
   if (!Number.isInteger(pid) || pid <= 0) return null
   try {
     if (process.platform === 'win32') {
@@ -114,21 +122,26 @@ export function commandLineLooksLikeOurs(pid) {
       if (text === '' || !/commandline/i.test(text)) return false
       const command = text.split(/\r?\n/).slice(1).join(' ').trim()
       if (command === '') return null
-      return /synapse/i.test(command)
+      return isOurs(command)
     }
     if (process.platform === 'linux') {
       try {
-        return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('synapse')
+        return isOurs(readFileSync(`/proc/${pid}/cmdline`, 'utf8'))
       } catch (error) {
         // A vanished /proc entry means the process is gone.
         if (error?.code === 'ENOENT') return false
         return null
       }
     }
-    return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 4_000 }).includes('synapse')
+    return isOurs(execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 4_000 }))
   } catch {
     return null
   }
+}
+
+/** The CLI's own token, as explained above. */
+function synapseCommandLine(command) {
+  return /synapse/i.test(command)
 }
 
 async function readHolder(lockPath) {
@@ -181,11 +194,13 @@ async function readLock(lockPath) {
  *     NOT evidence of death, and treating it as death would let a second
  *     instance steal a live lock and corrupt the file.
  *
+ * @param {{ pid: number }|null} holder
+ * @param {(command: string) => boolean} [isOurs]
  * @returns {boolean|null}
  */
-function holderLiveness(holder) {
+function holderLiveness(holder, isOurs) {
   if (!isAlive(holder.pid)) return false
-  return commandLineLooksLikeOurs(holder.pid)
+  return commandLineLooksLikeOurs(holder.pid, isOurs)
 }
 
 /**
@@ -203,12 +218,12 @@ function holderLiveness(holder) {
  * file, which is exactly what this lock exists to prevent. Measured here: the
  * canvas on port 30142 had been up 23 hours, one hour from that state.
  *
- * @param {object|null} holder
- * @param {{ staleAfterMs: number, mtimeMs: number|null }} age
+ * @param {{ pid: number }|null} holder
+ * @param {{ staleAfterMs: number, mtimeMs: number|null, isOurs?: (command: string) => boolean }} age
  */
-function lockIsStale(holder, { staleAfterMs, mtimeMs }) {
+function lockIsStale(holder, { staleAfterMs, mtimeMs, isOurs }) {
   if (holder === null) return true
-  const liveness = holderLiveness(holder)
+  const liveness = holderLiveness(holder, isOurs)
   if (liveness === false) return true
   // Confirmed alive and ours: never steal it, however old the file looks.
   if (liveness === true) return false
@@ -232,12 +247,17 @@ function lockIsStale(holder, { staleAfterMs, mtimeMs }) {
  *   line cannot be read: Windows recycles PIDs, so "that PID exists" never proves
  *   the holder is alive, but a threshold that is too eager would let a second
  *   instance steal a live lock. A confirmed-live holder is never aged out.
+ * @param {(command: string) => boolean} [options.isOurs]
+ *   How to recognise our own process on a holder's command line. Defaults to the
+ *   CLI token; a host that embeds Synapse in its own process passes a matcher for
+ *   its own launcher, because the default would read that host as a recycled PID
+ *   and steal a live lock.
  * @returns {Promise<{ release: () => Promise<void>, refresh: () => Promise<void>, lockPath: string, tookOver: boolean }>}
  *   `refresh` is what the heartbeat calls every `HEARTBEAT_MS`; it is exposed so
  *   a test can observe the refresh without waiting minutes for a tick.
  * @throws {InstanceLockError} when a live instance already holds it
  */
-export async function acquireInstanceLock(dataFile, { port = null, force = false, staleAfterMs = DEFAULT_STALE_MS } = {}) {
+export async function acquireInstanceLock(dataFile, { port = null, force = false, staleAfterMs = DEFAULT_STALE_MS, isOurs = undefined } = {}) {
   const lockPath = `${dataFile}.instance`
   const payload = () => JSON.stringify({
     pid: process.pid,
@@ -269,7 +289,7 @@ export async function acquireInstanceLock(dataFile, { port = null, force = false
   let tookOver = false
   if (!(await claim())) {
     const { holder, mtimeMs } = await readLock(lockPath)
-    if (lockIsStale(holder, { staleAfterMs, mtimeMs })) {
+    if (lockIsStale(holder, { staleAfterMs, mtimeMs, isOurs })) {
       // The owner is gone (a killed instance always leaves its lock behind on
       // Windows) or the lock is too old to trust: reclaim it.
       tookOver = true

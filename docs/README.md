@@ -8,6 +8,7 @@
 | pi JSONL → 卡片、工具折叠、会话删除对账 | [projection.md](projection.md) |
 | 上下文占用圆环里的数字 | [context-usage.md](context-usage.md) |
 | pi-web 接口、导航、分支/侧问、图片、改名与归档 | [host-integration.md](host-integration.md) |
+| DeepSeek Harness（desktop app / web profile）适配 | [dsh-desktop.md](dsh-desktop.md) |
 | 画布长什么样、卡片哪些状态、手感 | [canvas-ui.md](canvas-ui.md) |
 | 服务端路由、能力声明、单实例锁、写盘 | [runtime.md](runtime.md) |
 | 静态检查、单测、验证套件、探测纪律 | [verification.md](verification.md) |
@@ -32,3 +33,4 @@
 | 15、19、21、33 | [verification.md](verification.md) |
 | 22–24、34、35 | [context-usage.md](context-usage.md) |
 | 36–39、42、43 | [runtime.md](runtime.md) |
+| 44–50 | [dsh-desktop.md](dsh-desktop.md) |

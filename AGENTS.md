@@ -23,6 +23,7 @@ npm run verify         # 全套回归（需 pi-web 在 30100）：起服务 → 
 | 画布视觉与交互 | `docs/canvas-ui.md` |
 | 服务端路由、能力声明、单实例锁、写盘 | `docs/runtime.md` |
 | 静态检查、验证套件、探测纪律 | `docs/verification.md` |
+| DSH / dsh desktop 适配（服务面、装插件、转发规则） | `docs/dsh-desktop.md` |
 
 `docs/README.md` 是索引：还有「坑编号 → 文件」对照表。**跨篇引用的编号（`§15`、`坑 22`）是全仓库 ID，别重编号。**
 
@@ -42,6 +43,8 @@ npm run verify         # 全套回归（需 pi-web 在 30100）：起服务 → 
 ## 已验证的上游版本
 
 pi-web **0.12.0**（commit `894e1a2`）、pi **1.1.0**、Node 24.14.0。上游源码克隆在 `.pi-web-src/`（开发期参考，已 gitignore）。adapter 依赖 pi-web 的内部 HTTP 契约，升级要重新核对端点与字段。
+
+DSH 侧：dsh **0.2.1-rc.2**（desktop app 内置运行时，profile `~/.dsh/profiles/desktop`）。DSH adapter 依赖 `ctx.webServer` / `ctx.sessions` / `ctx.sessionQuery` 与 client 侧的 `ctx.sessions` / `ctx.uiWorkspace`，升级同样要重新核对。
 
 ## 文档约定
 

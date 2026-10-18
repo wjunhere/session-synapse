@@ -2000,7 +2000,7 @@ app.addEventListener('submit', event => {
 // iframe. Two host signals still arrive over postMessage from the injected
 // page bridge: the current pi-web session, and live streaming replies.
 window.addEventListener('message', event => {
-  if (event.origin !== window.location.origin || event.data?.source !== 'pi-synapse-host') return
+  if (event.origin !== window.location.origin || event.data?.source !== 'synapse-host') return
   const data = event.data
   if (data.type === 'synapse:theme') {
     document.documentElement.dataset.theme = data.dark === true ? 'dark' : 'light'

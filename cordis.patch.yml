@@ -1,0 +1,21 @@
+# session-synapse 的 DSH bundle 层。
+#
+# 装法（profile 的 package.json 里加依赖 + 这个 bundle，重启 app 生效）见
+# docs/dsh-desktop.md §4。web 与 desktop 用同一份 patch：两者跑的是同一个
+# harness，desktop 只是多了一层 Electron 壳。
+#
+# 复用 DSH 自己的 web server（`/synapse/*` 注册在 `ctx.webServer` 上），
+# 不启动第二个进程、不做 HTML 注入 —— 与 pi-web 那套（bin/synapse.js 起反代）相反。
+- insert:
+    - id: synapse
+      # 必须是包的**裸名**：DSH loader 用裸名挂载插件（插件的宿主半区就是包的主入口），
+      # 而客户端模块图只认裸包名（`exactPackageSpecifier` 会拒掉子路径）。
+      name: session-synapse
+      config:
+        # dataFile 默认 <DSH_HOME>/session-synapse/workspaces.json，由插件自己算。
+        # 要换位置在这里给绝对路径；要与上游 dsh-synapse 共用画布数据则指向它的
+        # $DSH_HOME/synapse/workspaces.json（store 会自己跑 v4→v5 迁移）。
+        #
+        # 额外的 /synapse Host 白名单（host 或 host:port）；localhost 与 127.0.0.1
+        # 总是允许，这里只用来放行反代/远程访问的 authority。
+        trustedHosts: []

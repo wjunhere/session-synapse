@@ -25,7 +25,7 @@ await frame.evaluate(() => {
   window.__live = []
   window.addEventListener('message', e => {
     const d = e.data
-    if (d?.source === 'pi-synapse-host' && d.type === 'synapse:live-reply') {
+    if (d?.source === 'synapse-host' && d.type === 'synapse:live-reply') {
       window.__live.push({ at: Date.now(), running: d.running, len: (d.text ?? '').length, head: (d.text ?? '').slice(0, 30) })
     }
   })
