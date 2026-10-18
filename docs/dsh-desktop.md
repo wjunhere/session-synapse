@@ -79,7 +79,9 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | 写操作（新建/发消息/分支/改名/归档） | 浏览器直接调 pi-web 的 `/api/*`（pi-web 要求 `Origin` 等于自己的 `Host`，只有页面能发） | 画布调 `/synapse/api/host/*`，插件在本进程内调 harness 服务（`ctx.sessionController` / `ctx.workspaceController`） |
 | 切换条位置 | pi-web 页面上居中悬浮（`src/canvas/bridge.js` 注入） | 宿主头部的操作区（`[class*="_headerCorner"]`）里第一个子节点，紧邻文件管理器/面板开关那排 |
 | 画布占哪块地方 | 覆盖 pi-web 整页（除顶栏） | 宿主框架的**中间那一列**（`[class*="_centerCol"]`），头部下沿起 —— 宿主的侧栏和头部留在原处 |
-| 画布自己的侧栏 | 展开（它就是这个界面的唯一导航） | **默认收起**成 56px 轨道（`synapse:chrome {sidebar:'collapsed'}`）：宿主已有自己的会话列表，两份列表是同一份信息两次；轨道让画布自己的控件（会话可见性开关）一键可达，而不是消失 |
+| 画布自己的侧栏 | 展开（它就是这个界面的唯一导航） | **不渲染**：宿主已有自己的会话列表，两份列表是同一份信息两次 |
+| 画布自己的顶栏 / 视图标签 | 渲染 | **不渲染**：宿主已有头部，再顶一条就是「应用套应用」；工具改成右下角浮动簇 |
+| 颜色与字体 | 画布自己的暖纸色 + Geist/Newsreader | 跟随宿主的 `--dsw-alias-*` / `--dsw-font-family`（由宿主半区读出后经桥推过来） |
 
 ### 5.1 切换条为什么长在头部操作区里
 
@@ -95,7 +97,12 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 头部找不到时（全屏框架、以后的布局改版）切换条回到自己的容器里当悬浮胶囊 —— **只降级位置，不降级功能**。
 
-画布带多少 chrome 由宿主说：DSH 在 `synapse:map-ready` 后回一条 `synapse:chrome {sidebar:'collapsed'}`，画布把侧栏收成 56px 轨道。不硬删的原因：侧栏里有「会话可见性开关」（眼睛），删了就变成单向门（藏了一个会话再也放不回来）；轨道保留它一键可达，而视觉上不再与宿主侧栏重复。pi-web 不发这条消息，侧栏保持原样。
+画布带多少 chrome 由宿主说：DSH 在 `synapse:map-ready` 后回一条 `synapse:chrome {embedded:true}`，画布进入**嵌入模式**（侧栏/顶栏/标签行全不渲染、工具变浮动簇、字体与颜色改跟宿主）。pi-web 不发这条消息，画布保持原样。
+
+两个必须知道的细节：
+
+- **token 只能由宿主读出来推过去。** 画布在 iframe 里，`getComputedStyle(frame).getPropertyValue('--dsw-…')` 在帧内返回空串 —— 自定义属性不过文档边界。所以宿主半区读自己的 token（在 `body` 上，不在 `documentElement` 上）、以 `synapse:theme {dark, tokens}` 推给画布。
+- **token 重映射要挂在 `html[data-embedded]`，不能挂在 `#app` 里的壳上。** 画布在 `:root` 里就写了 `font-family: var(--font-sans)`，作用在 `html` 上，挂在壳上的重映射它看不见（实测：卡片字型还是 Geist，而宿主字体已经推到了）。
 
 选择哪条通道不是画布决定的：`/synapse/api/status` 报 `writeTransport`（`'host'` / `'synapse'`），画布据此安装；未知值直接报错，不猜。画布只会调语义化操作（`hostSendMessage` / `hostForkSession` / `hostRenameSession` / `hostArchiveSession` / `hostEnsureSession`），宿主自己的命令词（`prompt` / `fork_branch` / `set_tools`）不外泄到 `app.js`。
 
@@ -187,4 +194,5 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 56. **自己注入的 UI 不能被自己的遮罩盖住，也不能被遮一半。** 切换条原来浮在标题上，遮罩从 `--dsh-frame-chrome-top` 起 —— 地图视图下整条头部（连同切换条）都在遮罩之下，**回不到对话视图**；改成「头部下沿起、横跨整页」后又变成宿主的侧栏被截成两截（它自己的 logo/新会话露在画布上方，画布自己的侧栏接着往下列）。正解是**只占中间那一列**（`[class*="_centerCol"]`）。判断可见性要用 `elementFromPoint` 命中自己，不能只看 `getBoundingClientRect`。
 57. **注入到 React 组件里的节点会被重渲染丢掉。** 切会话/切主题都会重建头部，头部操作区里那个 `prepend` 进去的节点随之消失（外表现为「切换条时有时无」）。用 MutationObserver（rAF 合帧，避免流式期间每帧回调）幂等重挂，并顺手重算头部下沿。
 58. **CSS-module 的哈希前缀会变，本地名不变。** 选宿主元素只能匹配 `*_headerCorner` 这种后半段（实测哈希是 `wSkVaW_headerCorner`）。反过来，`[class*="_header"]` 这种写宽了会命中别的东西（实测命中了正文里的 `bhn1Oq_headerActions`），拿它量头部高度会把画布起点算到 198px 而不是 40px。
-59. **两份会话列表就是同一份信息看两遍。** 画布自己的侧栏和宿主的侧栏列的是同一批会话；在 DSH 里默认把画布侧栏收成轨道（`synapse:chrome`）。但别直接删掉它 —— 「会话可见性开关」（眼睛）只长在那里，删了就变成单向门：藏了一个会话，画布上再也没有地方能把它放回来（空状态文案写的就是「在左侧会话列表里点眼睛图标」）。
+59. **两份会话列表就是同一份信息看两遍。** 画布自己的侧栏和宿主的侧栏列的是同一批会话；在 DSH 里直接不渲染它（`synapse:chrome`）。代价是画布的「会话可见性开关」（眼睛）和它的「新会话」按钮随之消失：前者目前没有替代入口（藏了一个会话只能去改 `workspaces.json`），后者宿主自己有；空工作区的地图仍有「新建会话」。
+60. **注入的 UI 与遮罩的层级要先想清楚再动手。** 地图视图下画布遮罩盖着中间列，所以在自动化里先切回「对话」再点 DSH 的输入框（否则 `locator.click` 只会等到 30s 超时）。这是验证脚本的坑，不是产品的：真实用户不会去点被遮住的东西。

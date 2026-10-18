@@ -180,8 +180,33 @@ loader.load({
         send('synapse:current-session', { session: id === null ? null : { id } })
       }
 
-      // ---------- theme ----------
-      const postTheme = () => send('synapse:theme', { dark: document.body?.hasAttribute('data-ds-dark-theme') === true })
+      // ---------- theme + the host's design values ----------
+      //
+      // The canvas is an IFRAME, so it cannot read these itself: custom properties
+      // do not cross a document boundary. Reading them here and pushing them over
+      // the bridge is what lets the map follow the host's palette and typeface
+      // instead of carrying a second design language into the window.
+      const HOST_TOKENS = {
+        bg: '--dsw-alias-bg-base',
+        surface: '--dsw-alias-bg-layer-2',
+        hover: '--dsw-alias-interactive-bg-hover',
+        line: '--dsw-alias-border-l2',
+        ink: '--dsw-alias-label-primary',
+        ink2: '--dsw-alias-label-secondary',
+        ink3: '--dsw-alias-label-tertiary',
+        font: '--dsw-font-family',
+        radiusSm: '--dsw-radius-sm',
+      }
+      const hostTokens = () => {
+        const style = getComputedStyle(document.body ?? document.documentElement)
+        const tokens = {}
+        for (const [key, name] of Object.entries(HOST_TOKENS)) {
+          const value = style.getPropertyValue(name).trim()
+          if (value !== '') tokens[key] = value
+        }
+        return tokens
+      }
+      const postTheme = () => send('synapse:theme', { dark: document.body?.hasAttribute('data-ds-dark-theme') === true, tokens: hostTokens() })
       const themeObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(postTheme)
       themeObserver?.observe(document.body ?? document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
 
@@ -276,9 +301,9 @@ loader.load({
         if (data.type === 'synapse:map-ready') {
           postTheme()
           postCurrent()
-          // The canvas brings only the collapsed rail: this host already shows
-          // its own session list beside it (see `synapse:chrome` in app.js).
-          send('synapse:chrome', { sidebar: 'collapsed' })
+          // The canvas brings no chrome of its own: this host already shows its
+          // own sidebar and header (see `synapse:chrome` in app.js).
+          send('synapse:chrome', { embedded: true })
           // A freshly loaded canvas missed every earlier transition, so the
           // running set is re-reported in full rather than diffed.
           runningIds = new Set()

@@ -200,37 +200,86 @@ try {
   const mapPlacement = await placement()
   check('地图视图下切换条仍可见且没被画布盖住', mapPlacement.visible && mapPlacement.hitIsBar, JSON.stringify(mapPlacement))
 
-  // C. 画布自己带多少 chrome：这个宿主已经有自己的会话列表，画布只留轨道
+  // C. 画布带多少 chrome：这个宿主已经有自己的侧栏和头部，画布什么都不带
   const chrome = await frame().evaluate(() => {
     const shell = document.querySelector('.synapse-shell')
-    const sidebar = document.querySelector('.sidebar')
+    const controls = document.querySelector('.canvas-controls')
+    const viewport = document.querySelector('.canvas-viewport')
+    const card = document.querySelector('.thread-card')
+    const root = getComputedStyle(document.documentElement)
+    const rect = controls?.getBoundingClientRect()
+    const visibleCards = [...document.querySelectorAll('.thread-card')].filter(node => { const r = node.getBoundingClientRect(); return r.right > 0 && r.left < window.innerWidth && r.bottom > 0 && r.top < window.innerHeight }).length
     return {
-      collapsed: shell?.classList.contains('sidebar-collapsed') === true,
-      width: Math.round(sidebar?.getBoundingClientRect().width ?? -1),
-      treeHidden: getComputedStyle(document.querySelector('.thread-tree')).display === 'none',
-      toggleLabel: document.querySelector('.sidebar-toggle')?.getAttribute('aria-label') ?? '',
+      embedded: shell?.classList.contains('embedded') === true,
+      sidebarGone: document.querySelector('.sidebar') === null,
+      topbarGone: document.querySelector('.topbar') === null,
+      tabsGone: document.querySelector('.canvas-tabs') === null,
+      controls: rect === undefined ? null : { right: Math.round(window.innerWidth - rect.right), bottom: Math.round(window.innerHeight - rect.bottom), width: Math.round(rect.width) },
+      hostBg: root.getPropertyValue('--host-bg').trim(),
+      canvasBg: viewport === null ? '' : getComputedStyle(viewport).backgroundColor,
+      hostFont: root.getPropertyValue('--host-font').trim(),
+      cardFont: card === null ? '' : getComputedStyle(card.querySelector('.thread-title') ?? card).fontFamily.trim(),
+      visibleCards,
     }
   })
-  check('画布侧栏在 DSH 里默认收起（不重复宿主那份会话列表）', chrome.collapsed && chrome.treeHidden && chrome.width <= 64, JSON.stringify(chrome))
-  check('收起后仍能展开（轨道上有按钮）', chrome.toggleLabel === '展开侧边栏', JSON.stringify(chrome.toggleLabel))
+  check('画布切到嵌入模式（自己的壳全部不渲染）', chrome.embedded && chrome.sidebarGone && chrome.topbarGone && chrome.tabsGone, JSON.stringify(chrome))
+  check('工具变成右下角的浮动簇', chrome.controls !== null && chrome.controls.width > 0 && chrome.controls.right < 40 && chrome.controls.bottom < 40, JSON.stringify(chrome.controls))
+  check('背景跟随宿主 token', chrome.hostBg !== '' && chrome.canvasBg !== '', `host=${chrome.hostBg} canvas=${chrome.canvasBg}`)
+  check('字体跟随宿主 token（画布不再自带一套字型）', chrome.hostFont !== '' && chrome.cardFont === chrome.hostFont, `host=${chrome.hostFont.slice(0, 30)} card=${chrome.cardFont.slice(0, 30)}`)
+  check('地图打开时视口里就有卡片', chrome.visibleCards > 0, `可见 ${chrome.visibleCards} 张`)
 
   // D. 宿主文案：画布不该在 DSH 里自称 pi-web
   const hostButton = await frame().evaluate(() => document.querySelector('.thread-card [data-action="open-host"]')?.textContent?.trim() ?? '')
   check('卡片页脚按宿主命名（DSH）', hostButton.includes('DSH'), JSON.stringify(hostButton))
 
-  // D. 新建会话 + 发消息（真模型）
-  await frame().click('button[data-action="create-session"]')
-  await frame().waitForSelector('[data-draft] textarea', { timeout: 15_000 })
-  await frame().fill('[data-draft] textarea', '画布发来的第一条消息')
-  await frame().click('[data-draft] button[type="submit"]')
+  // D. 发消息（真模型）
+  //
+  // 第一条在 DSH 自己的输入框里发：嵌入模式下画布不再有自己的侧栏，也就没有
+  // 它的「新会话」按钮 —— 第一条消息本来就属于宿主，画布是在会话已经有内容
+  // 之后才把它画成卡片的（空会话会被当作 blank 剪掉）。然后从卡片上的「追问」
+  // 发第二条，验的是画布 → /synapse/api/host/prompt 这条路。
+  //
+  // 必须先切回「对话」：地图视图下画布遮罩就盖在输入框上面，点它只会超时。
+  await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="dialog"]').click())
+  await sleep(1_500)
+  const composer = page.locator('[contenteditable=true]').first()
+  await composer.click()
+  await composer.type('画布发来的第一条消息')
+  await page.keyboard.press('Enter')
   let created = null
   for (let attempt = 0; attempt < 40; attempt++) {
     await sleep(2_000)
     created = (await store()).find(thread => thread.messages.some(text => text.includes('画布发来的第一条消息')))
     if (created !== undefined && created.messages.some(text => text.startsWith('assistant:'))) break
   }
-  check('画布新建的会话落在 DSH 里', created !== undefined, created === undefined ? '卡片没出现' : `sessionId=${created.sessionId}`)
+  check('宿主里发的第一条消息在画布上画成了卡片', created !== undefined, created === undefined ? '卡片没出现' : `sessionId=${created.sessionId}`)
   check('模型真的回答了（写操作 + 投影闭环）', created?.messages.some(text => text.startsWith('assistant:')) === true, JSON.stringify(created?.messages.at(-1)?.slice(0, 60) ?? null))
+
+  // 回到地图，后面都是画布上的动作
+  await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="map"]').click())
+  await sleep(2_000)
+
+  // 从卡片上追问：这条走画布自己的写通道
+  const CONTINUE = '.thread-card [data-action="open-continue"]'
+  let hasContinue = false
+  for (let attempt = 0; attempt < 20 && !hasContinue; attempt++) {
+    await sleep(1_500)
+    hasContinue = await frame().evaluate(selector => document.querySelector(selector) !== null, CONTINUE)
+  }
+  check('卡片上有「追问」入口', hasContinue === true)
+  if (hasContinue) {
+    await frame().click(CONTINUE)
+    await frame().waitForSelector('[data-draft] textarea', { timeout: 15_000 })
+    await frame().fill('[data-draft] textarea', '画布追问的一句')
+    await frame().click('[data-draft] button[type="submit"]')
+    let followed = null
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await sleep(2_000)
+      followed = (await store()).find(thread => thread.messages.some(text => text.includes('画布追问的一句')))
+      if (followed !== undefined) break
+    }
+    check('画布发出的追问落进了同一个会话', followed?.sessionId === created?.sessionId, `sessionId=${followed?.sessionId ?? '无'}`)
+  }
 
   // E. 分支：画布的 entry id 要变成宿主的事件 seq
   //

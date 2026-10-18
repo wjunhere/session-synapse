@@ -229,6 +229,57 @@ kbd {
 .canvas-controls button svg { width: 14px; height: 14px; flex: none; }
 .canvas-controls span { min-width: 46px; color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; text-align: center; }
 
+/* ─────────────────── embedded in a host's own shell ─────────────────── */
+/* A host that already shows a sidebar and a header of its own gets a canvas
+ * with no chrome at all: the map IS the view. Three consequences, all needed to
+ * stop the canvas reading as an app inside an app:
+ *
+ *   - the sidebar, the topbar and the view tabs are gone (the host's sidebar
+ *     already lists the same sessions, and the host's header already says which
+ *     workspace this is); the canvas tools move to a floating cluster so they
+ *     are still reachable without a bar across the top;
+ *   - the host's resolved design tokens arrive over the bridge as `--host-*`,
+ *     because an iframe cannot inherit the host's CSS variables — reading them
+ *     inside the frame returns empty strings, not the host's values;
+ *   - the token remap sits on `html[data-embedded]`, NOT on the shell: the
+ *     canvas sets `font-family` in its `:root` block, so a remap scoped to
+ *     `#app` would never reach it (measured: the cards kept Geist while the
+ *     host's own font was sent).
+ */
+html[data-embedded] {
+  --canvas: var(--host-bg, #f7f6f3);
+  --surface: var(--host-surface, #ffffff);
+  --surface-hover: var(--host-hover, #f4f3f0);
+  --line: var(--host-line, #eaeaea);
+  --ink: var(--host-ink, #111111);
+  --ink-1: var(--host-ink, #2f3437);
+  --ink-2: var(--host-ink2, #615e58);
+  --ink-3: var(--host-ink3, #8c8983);
+  /* Type follows the host too — including the serif display moments, which are
+     the canvas's own editorial voice and the loudest "different app" signal. */
+  --font-sans: var(--host-font, 'Geist Local', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
+  --font-serif: var(--host-font, 'Newsreader Local', 'Songti SC', Georgia, serif);
+}
+.synapse-shell.embedded { --sidebar-width: 0px; grid-template-rows: minmax(0, 1fr); }
+.embedded .sidebar { display: none; }
+.embedded .topbar { display: none; }
+.embedded .main-stage { grid-row: 1; }
+.embedded .canvas-controls {
+  position: fixed;
+  z-index: 40;
+  right: 18px;
+  bottom: 18px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .08);
+}
+.embedded .canvas-controls button { border: 0; border-radius: var(--host-radius-sm, 6px); background: transparent; padding: 0 8px; color: var(--ink-2); }
+.embedded .canvas-controls button:hover { background: var(--surface-hover); color: var(--ink); }
+.embedded .canvas-controls span { min-width: 38px; font-family: var(--font-sans); font-size: 12px; }
+
 /* ─────────────────────────── sidebar ─────────────────────────── */
 
 .sidebar {

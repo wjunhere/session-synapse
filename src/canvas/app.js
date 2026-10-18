@@ -16,7 +16,6 @@ import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, pro
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH } from './storage.js'
 import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
 import { hostLabels } from './host-labels.js'
-
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 
@@ -1275,7 +1274,11 @@ function renderCanvas() {
   state.canvasCards = cards
   state.canvasCardsById = new Map(cards.map(card => [card.id, card]))
   state.canvasGraph = graph
-  if (!state.canvasViewInitialized) {
+  // An EMPTY canvas must not consume the initial framing: the host's chrome
+  // signal and the workspace load race, and a frame computed for zero cards
+  // left the first real card outside the viewport (measured: x = -155 inside the
+  // frame). So the flag stays false until there is something to frame.
+  if (!state.canvasViewInitialized && cards.length > 0) {
     state.canvasCamera = initialCanvasCamera(cards)
     state.canvasViewInitialized = true
     // The viewport is not laid out yet while renderCanvas builds its HTML;
@@ -1432,7 +1435,11 @@ function render() {
   // 切换「对话 / 会话地图」的唯一入口在宿主页面里（bridge 注入的那条，它同时
   // 悬浮在画布上方）。画布内不重复渲染一份：两个看起来一样的切换控件、一个
   // fixed 居中一个在顶栏栅格里，x 不同，用户会看到两个（已实际发生）。
-  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside><header class="topbar">${mastheadLead}${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${canvasTabs}${view}${selectionFollowupButton()}</section></main>`
+  //
+  // 嵌入模式（宿主自己有壳）：侧栏、顶栏、视图标签全部不渲染，工具改为浮动簇 ——
+  // 留一条横跨顶部的栏就还是「应用套应用」。
+  const embedded = state.embedded
+  app.innerHTML = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${selectionFollowupButton()}</section></main>`
   installDragging()
   cacheCardConnectors()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
@@ -1998,18 +2005,27 @@ window.addEventListener('message', event => {
   const data = event.data
   if (data.type === 'synapse:theme') {
     document.documentElement.dataset.theme = data.dark === true ? 'dark' : 'light'
+    applyHostTokens(data.tokens)
     return
   }
   // How much chrome the canvas should bring itself. A host that already shows
-  // its own session list beside the canvas (DSH) asks for the collapsed rail:
-  // two session lists side by side is the same information twice, and the rail
-  // keeps the canvas's own controls — the visibility toggles above all — one
-  // click away instead of gone. pi-web sends nothing, which leaves the sidebar
+  // its own sidebar and header (DSH) asks for `embedded`: the canvas drops its
+  // sidebar, its topbar and its view tabs, so the map reads as a view of the host
+  // rather than an app inside it. pi-web sends nothing, which leaves the canvas
   // as it was.
   if (data.type === 'synapse:chrome') {
-    const collapsed = data.sidebar === 'collapsed'
-    if (collapsed !== state.sidebarCollapsed) {
-      state.sidebarCollapsed = collapsed
+    const embedded = data.embedded === true
+    if (embedded !== state.embedded) {
+      state.embedded = embedded
+      if (embedded) document.documentElement.dataset.embedded = ''
+      else delete document.documentElement.dataset.embedded
+      // The chrome change moves the map's own frame of reference: without this
+      // the camera keeps the old insets and the cards land outside the viewport.
+      // `canvasNeedsCenter` is the canvas's own "center on the focused card once
+      // the DOM is mounted" pass, which also covers the first load.
+      state.canvasViewInitialized = false
+      state.canvasNeedsCenter = true
+      resetCanvasCamera()
       if (canReplaceView()) render()
     }
     return
@@ -2040,6 +2056,39 @@ window.addEventListener('message', event => {
     }
   }
 })
+
+/**
+ * The host's own design values, pushed over the bridge as `--host-*`.
+ *
+ * The canvas runs in an IFRAME: `getComputedStyle(frame).getPropertyValue('--dsw-…')`
+ * inside the frame returns the empty string, because custom properties do not
+ * cross a document boundary. So the host half reads its own resolved tokens and
+ * sends them, and the canvas maps its own variables onto them (see the
+ * `embedded` block in styles.css).
+ *
+ * Unknown keys are ignored rather than trusted: the host half is the only
+ * sender, but a typo there must not inject an arbitrary property.
+ */
+const HOST_TOKEN_VARS = {
+  bg: '--host-bg',
+  surface: '--host-surface',
+  hover: '--host-hover',
+  line: '--host-line',
+  ink: '--host-ink',
+  ink2: '--host-ink2',
+  ink3: '--host-ink3',
+  font: '--host-font',
+  radiusSm: '--host-radius-sm',
+}
+
+function applyHostTokens(tokens) {
+  if (tokens === null || typeof tokens !== 'object') return
+  for (const [key, name] of Object.entries(HOST_TOKEN_VARS)) {
+    const value = tokens[key]
+    if (typeof value !== 'string' || value === '') continue
+    document.documentElement.style.setProperty(name, value)
+  }
+}
 
 post('synapse:map-ready')
 // The host declares what it can do, how it names itself, and how it wants its

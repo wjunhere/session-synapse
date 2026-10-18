@@ -20,6 +20,9 @@ import { hostLabels } from './host-labels.js'
 
 export const state = {
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentSession: null, sidebarCollapsed: false,
+  // Set by the host over the bridge (`synapse:chrome`): the host provides its own
+  // sidebar and header, so the canvas brings none. See styles.css `embedded`.
+  embedded: false,
   capabilities: { sendMessage: false, forkSession: false, openSession: false, archiveSession: false, renameSession: false, btw: false, setTools: false },
   // Host wording (button labels, empty-state hints). Neutral until
   // /synapse/api/status names the adapter — see host-labels.js.
