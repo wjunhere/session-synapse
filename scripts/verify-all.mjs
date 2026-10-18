@@ -50,6 +50,7 @@ const SUITES = [
   { script: 'e2e-real-data.mjs', browser: false, needsService: false, timeoutMs: 300_000 },
   { script: 'verify-context.mjs', browser: false, needsService: false, timeoutMs: 600_000 },
   { script: 'verify-single-instance.mjs', browser: false, needsService: false, timeoutMs: 600_000 },
+  { script: 'verify-clean-probes.mjs', browser: false, needsService: false, timeoutMs: 300_000 },
   { script: 'verify-session-removal.mjs', browser: false, needsService: true, timeoutMs: 300_000 },
   { script: 'verify-canvas.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-detail-rows.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
@@ -63,6 +64,8 @@ const SUITES = [
   { script: 'verify-send.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-streaming.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-streaming-card.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
+  { script: 'verify-selection-dismiss.mjs', browser: true, needsService: true, timeoutMs: 300_000 },
+  { script: 'verify-card-drag.mjs', browser: true, needsService: true, timeoutMs: 300_000 },
   { script: 'verify-image-paste.mjs', browser: true, needsService: true, timeoutMs: 420_000 },
   { script: 'verify-btw.mjs', browser: true, needsService: true, timeoutMs: 600_000 },
   { script: 'verify-branch.mjs', browser: true, needsService: true, timeoutMs: 600_000 },
@@ -224,7 +227,7 @@ try {
   failed++
   process.stderr.write(`verify: ${error?.message ?? error}\n`)
 } finally {
-  // Order matters and mirrors AGENTS.md: the service must be down before the
+  // Order matters and mirrors docs/verification.md: the service must be down before the
   // probe cleanup, because the store keeps its state in memory and would
   // otherwise write the probe sessions back.
   await stopService()

@@ -496,7 +496,7 @@ function settlePendingReply(thread, messages) {
   const userIndex = pendingUserIndex(messages, pending)
   // An `error` entry settles the turn too: a run that failed never writes an
   // assistant message, and waiting for one left the card saying 「正在回复」
-  // (with its streaming border) forever after a failed turn.
+  // (with its streaming halo) forever after a failed turn.
   const answered = messages.slice(userIndex + 1).some(message => message.kind === 'assistant' || message.kind === 'error')
   if (userIndex === -1 || !answered) return false
   state.pendingReplies.delete(thread.sessionId)
@@ -977,7 +977,7 @@ function conversationCard(card, graph) {
       : '',
   ].join('')
   return `<article class="thread-card ${selected}${running ? ' is-streaming' : ''}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.hostThreadId}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${threadColor(card.hostThreadId)}">
-    <button class="node-handle" data-drag-card="${card.id}" aria-label="拖动 ${escapeHtml(card.question)}" title="拖动卡片"></button>
+    <button class="node-handle" data-drag-card="${card.id}" aria-label="拖动 ${escapeHtml(card.question)}" title="拖动卡片（方向键也可移动，Shift 微调）"></button>
     ${contextRing(contextUsageFor(card.hostThreadId))}
     ${continueButton}${foldButton}${branchButton}${btwButton}
     <div class="thread-card-head"><span class="topic-dot"></span><button class="thread-title" data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话：${escapeHtml(card.question)}">${escapeHtml(card.question)}</button></div>
@@ -1510,6 +1510,41 @@ function applyCanvasTransform() {
   if (content instanceof HTMLElement) content.style.transform = `translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})`
 }
 
+/** Where a card sits right now, in canvas coordinates. */
+function cardPosition(card, cardId) {
+  const remembered = state.cardPositions.get(cardId)
+  if (remembered !== undefined) return { x: remembered.x, y: remembered.y }
+  return { x: Number.parseFloat(card.style.left) || 0, y: Number.parseFloat(card.style.top) || 0 }
+}
+
+/**
+ * Move ONE card without re-rendering the canvas.
+ *
+ * Shared by the pointer drag (once per animation frame) and the keyboard nudge
+ * (one step per press) so both keep the same four things in sync: the remembered
+ * position, its position-key alias, the virtualized card model the viewport and
+ * the connectors read, and the card's inline position. Only the caller decides
+ * when to persist to localStorage — a drag persists once, on drop.
+ */
+function placeCard(card, cardId, position) {
+  const rounded = { x: Math.round(position.x), y: Math.round(position.y) }
+  const aliases = card.dataset.positionKey === undefined ? [] : [card.dataset.positionKey]
+  for (const key of [cardId, ...aliases]) state.cardPositions.set(key, rounded)
+  const dataCard = state.canvasCardsById?.get(cardId)
+  if (dataCard !== undefined) dataCard.position = { x: position.x, y: position.y }
+  card.style.left = `${position.x}px`
+  card.style.top = `${position.y}px`
+  refreshCardConnectors(cardId)
+  return aliases
+}
+
+/** Darken (or not) the connectors attached to a card that is being dragged. */
+function markDraggedConnectors(cardId, dragging) {
+  const paths = connectorPathsByCard.get(cardId)
+  if (paths === undefined) return
+  for (const path of paths) path.classList.toggle('dragging-connector', dragging)
+}
+
 function bindDragHandle(handle) {
   handle.addEventListener('pointerdown', event => {
     const cardId = event.currentTarget.dataset.dragCard
@@ -1517,24 +1552,17 @@ function bindDragHandle(handle) {
     if (cardId === undefined || !(card instanceof HTMLElement)) return
     event.preventDefault()
     const origin = { x: event.clientX, y: event.clientY, position: { x: Number.parseFloat(card.style.left), y: Number.parseFloat(card.style.top) } }
-    const aliases = card.dataset.positionKey === undefined ? [] : [card.dataset.positionKey]
     let position = origin.position
     let stopped = false
     let frame = 0
     state.dragging = true
+    card.classList.add('is-dragging')
+    markDraggedConnectors(cardId, true)
     // Coalesce pointermove updates to one DOM pass per animation frame so a
     // high report-rate pointer cannot queue a reflow per event.
     const apply = () => {
       frame = 0
-      state.cardPositions.set(cardId, { x: Math.round(position.x), y: Math.round(position.y) })
-      for (const alias of aliases) state.cardPositions.set(alias, { x: Math.round(position.x), y: Math.round(position.y) })
-      // Keep the virtualized data object in sync so viewport visibility and
-      // connector paths track the live drag position.
-      const dataCard = state.canvasCardsById?.get(cardId)
-      if (dataCard !== undefined) dataCard.position = { x: position.x, y: position.y }
-      card.style.left = `${position.x}px`
-      card.style.top = `${position.y}px`
-      refreshCardConnectors(cardId)
+      placeCard(card, cardId, position)
     }
     const move = moveEvent => {
       position = { x: origin.position.x + (moveEvent.clientX - origin.x) / state.zoom, y: origin.position.y + (moveEvent.clientY - origin.y) / state.zoom }
@@ -1547,8 +1575,10 @@ function bindDragHandle(handle) {
       document.removeEventListener('pointerup', stop)
       document.removeEventListener('pointercancel', stop)
       if (frame !== 0) { window.cancelAnimationFrame(frame); frame = 0 }
-      apply()
+      const aliases = placeCard(card, cardId, position)
       rememberCardPosition(cardId, position, aliases)
+      card.classList.remove('is-dragging')
+      markDraggedConnectors(cardId, false)
       state.dragging = false
       deferCanvasRefresh(120)
       // No full render: only the dragged card's inline position and its
@@ -1557,6 +1587,22 @@ function bindDragHandle(handle) {
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', stop)
     document.addEventListener('pointercancel', stop)
+  })
+
+  // Dragging must not be the ONLY way to place a card (WCAG 2.2.6/2.2.7 apply to
+  // any author-controlled drag). The handle is a real focusable button, so arrow
+  // keys nudge it: 8px a step, 1px with Shift for fine alignment.
+  handle.addEventListener('keydown', event => {
+    const cardId = event.currentTarget.dataset.dragCard
+    const card = event.currentTarget.closest('.thread-card')
+    if (cardId === undefined || !(card instanceof HTMLElement)) return
+    const step = event.shiftKey ? 1 : 8
+    const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key]
+    if (delta === undefined) return
+    event.preventDefault()
+    const from = cardPosition(card, cardId)
+    const aliases = placeCard(card, cardId, { x: from.x + delta[0], y: from.y + delta[1] })
+    rememberCardPosition(cardId, { x: from.x + delta[0], y: from.y + delta[1] }, aliases)
   })
 }
 
@@ -1743,8 +1789,24 @@ let pointerDownPosition = null
 app.addEventListener('pointerdown', event => { pointerDownPosition = { x: event.clientX, y: event.clientY } })
 app.addEventListener('pointerdown', event => {
   const button = event.target instanceof Element ? event.target.closest('.selection-followup') : null
-  if (button instanceof HTMLButtonElement) event.preventDefault()
-  else hideSelectionFollowup()
+  if (button instanceof HTMLButtonElement) {
+    event.preventDefault()
+    return
+  }
+  hideSelectionFollowup()
+  // Clicking off the text has to drop the highlight too, and the browser will
+  // not do it for us: the canvas pan gesture calls preventDefault() on
+  // pointerdown (it must — otherwise a pan drag starts a selection), and that
+  // same default is what clears the selection. On the secondary button the
+  // browser never clears it at all. Without this, a selection made in a card
+  // stayed lit forever and 「追问」 kept coming back on pointerup.
+  // Inside message text a pointer-down is the start of a *new* selection, so it
+  // is left alone — that is also what keeps right-click → copy working. Form
+  // fields are left alone too: a textarea keeps its own selection model, and it
+  // is not ours to clear.
+  const text = event.target instanceof Element ? event.target.closest('.thread-answer, .message-body, input, textarea, select') : null
+  const selection = window.getSelection()
+  if (text === null && selection !== null && selection.isCollapsed === false) selection.removeAllRanges()
 })
 app.addEventListener('pointerup', queueSelectionFollowup)
 app.addEventListener('scroll', hideSelectionFollowup, true)
@@ -2025,7 +2087,7 @@ function applyLiveReplyToCard(sessionId) {
   const answer = card.querySelector('.thread-answer')
   if (!(answer instanceof HTMLElement)) return
   // This path bypasses render() (it patches one card's answer only), so the
-  // streaming border has to be applied here too.
+  // streaming halo has to be applied here too.
   markCardStreaming(thread.id, true)
   const text = live.text
   answer.innerHTML = text.trim() === ''

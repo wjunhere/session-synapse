@@ -1,7 +1,7 @@
-// 会话进行中的卡片要有蓝色动效提示。
+// 会话进行中的卡片要有蓝色呼吸光晕。
 //
 // 流程：一次性会话发真实 prompt → 打开画布 → 断言该会话最新一张卡片带
-// `.is-streaming` 且边框是 --info 色 → 回复结束后断言类消失。
+// `.is-streaming`、外发光是 --info 蓝、且边框**不是**蓝色 → 回复结束后断言类消失。
 //
 // 注意：验证的是浏览器里真实可见的计算样式，不是类名本身 —— 类挂上了但 CSS
 // 没写（或被动画层覆盖）同样是坏的。
@@ -13,7 +13,7 @@ import { join } from 'node:path'
 const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
-const MODEL = { provider: 'trae', modelId: 'DeepSeek-V4-Flash' }
+const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 // PROBE_CWD 必须先存在：POST /api/agent/new 对不存在的目录返回 400（不是「代理坏了」）。
 await mkdir(PROBE_CWD, { recursive: true })
 
@@ -116,6 +116,10 @@ await frame.evaluate(() => document.querySelector('[data-draft]')?.dispatchEvent
 
 // 提交后立刻采样：pendingReplies 已同步置位，卡片此刻就应该亮
 const during = []
+// 截图就在「亮着」的那一帧取：本套件要证明的是进行中的样子，等回复结束再截
+// 只能得到一张熄灭后的画布。
+const shot = join(tmpdir(), 'synapse-verify-streaming-card.png')
+let shotTaken = false
 for (let i = 0; i < 10; i++) {
   await page.waitForTimeout(2500)
   const state = await frame.evaluate(tid => {
@@ -126,18 +130,26 @@ for (let i = 0; i < 10; i++) {
     return {
       cls: card.classList.contains('is-streaming'),
       border: cs.borderColor,
+      shadow: cs.boxShadow,
       animation: cs.animationName,
       text: card.querySelector('.thread-answer')?.textContent?.slice(0, 24) ?? '',
     }
   }, threadId)
   during.push(state)
   console.log(`  t=${(i + 1) * 2.5}s`, JSON.stringify(state))
+  if (state !== null && state.cls === true && shotTaken === false) {
+    await page.screenshot({ path: shot, fullPage: false })
+    shotTaken = true
+  }
   if (state !== null && state.cls === false && during.length > 2) break
 }
 
 const lit = during.filter(s => s?.cls === true)
-const blue = during.filter(s => s?.cls === true && /31,\s*108,\s*159/.test(s.border) === true)
-const animated = lit.some(s => s.animation === 'card-streaming' || s.animation === 'card-streaming-dark')
+// 光晕颜色靠 box-shadow 里的 rgba（1f6c9f = 31,108,159）识别；边框必须**没有**这
+// 个蓝：动效从「一条蓝线」改成「蓝色呼吸光晕」是刻意的设计，蓝边回归就是退步。
+const blue = during.filter(s => s?.cls === true && /31,\s*108,\s*159/.test(s.shadow) === true)
+const blueBorder = during.filter(s => s?.cls === true && /31,\s*108,\s*159/.test(s.border) === true)
+const animated = lit.some(s => s.animation === 'card-streaming')
 
 // 等回复结束（agent 不在 running 里且画布上类已消失）
 let settled = false
@@ -169,15 +181,14 @@ console.log('诊断:', JSON.stringify(diagnosis), '宿主仍在跑:', JSON.strin
 console.log()
 console.log(`流式期间亮起的采样: ${lit.length}/${during.length}`)
 console.log(lit.length > 0 ? 'PASS 进行中的卡片带 is-streaming 类' : 'FAIL 进行中的卡片没有动效类')
-console.log(blue.length === lit.length ? 'PASS 边框是蓝色（--info）' : `FAIL 边框颜色不是蓝（${lit.find(s => true)?.border ?? '—'}）`)
+console.log(blue.length === lit.length ? 'PASS 外发光是蓝色（--info）' : `FAIL 外发光不是蓝（${lit.find(s => true)?.shadow ?? '—'}）`)
+console.log(blueBorder.length === 0 ? 'PASS 边框保持中性（动效不是一条蓝线）' : `FAIL 边框被染成蓝色（${blueBorder.find(s => true)?.border ?? '—'}）`)
 console.log(animated ? 'PASS 呼吸动画在播（card-streaming）' : 'FAIL 动画名不是 card-streaming')
 console.log(settled ? 'PASS 回复结束后动效消失' : 'FAIL 回复结束后动效仍在')
 
-const ok = lit.length > 0 && blue.length === lit.length && animated && settled
+const ok = lit.length > 0 && blue.length === lit.length && blueBorder.length === 0 && animated && settled
 console.log('页面错误:', errors.length ? errors.slice(0, 3) : '无')
 // 截图写到系统临时目录：它是调试用的现场，不应在仓库根目录里积灰（曾经 `_stream.png` 一直躺着）。
-const shot = join(tmpdir(), 'pi-synapse-verify-streaming-card.png')
-await page.screenshot({ path: shot, fullPage: false })
-console.log('截图:', shot)
+console.log('截图:', shotTaken ? shot : '（流式期间没采到亮起的帧，未截）')
 await browser.close()
 process.exit(ok ? 0 : 1)

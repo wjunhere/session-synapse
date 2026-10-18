@@ -1,4 +1,4 @@
-/* pi-synapse canvas — editorial utilitarian minimalism.
+/* session-synapse canvas — editorial utilitarian minimalism.
  *
  * Two rules hold the whole file together:
  *   1. Colour is scarce. Hairlines structure the page; pastel tints only carry
@@ -65,9 +65,20 @@
   --violet-bg: #f2eff9;
   --violet-line: #ded6ee;
 
+  /* A running session's halo. Two alphas of the same hue: the breathing cycle
+     rides between them (see `card-streaming`), so the glow keeps one colour and
+     only its strength moves. */
+  --stream-glow: rgba(31, 108, 159, .34);
+  --stream-glow-soft: rgba(31, 108, 159, .12);
+  /* The same breathing halo for a running /btw widget, one hue over. */
+  --btw-glow: rgba(90, 74, 134, .34);
+  --btw-glow-soft: rgba(90, 74, 134, .12);
+
   /* Motion & lift */
   --shadow-lift: 0 1px 2px rgba(17, 17, 17, .04);
   --shadow-raise: 0 4px 14px rgba(17, 17, 17, .05);
+  /* A card being dragged: the one moment a shadow may actually be seen. */
+  --shadow-drag: 0 12px 28px rgba(17, 17, 17, .10), 0 2px 6px rgba(17, 17, 17, .05);
   --ease: cubic-bezier(.16, 1, .3, 1);
   --speed: 200ms;
 
@@ -111,8 +122,14 @@
   --violet-bg: #221e33;
   --violet-line: #3a3352;
 
+  --stream-glow: rgba(147, 193, 230, .38);
+  --stream-glow-soft: rgba(147, 193, 230, .15);
+  --btw-glow: rgba(193, 178, 236, .38);
+  --btw-glow-soft: rgba(193, 178, 236, .15);
+
   --shadow-lift: 0 1px 2px rgba(0, 0, 0, .3);
   --shadow-raise: 0 4px 16px rgba(0, 0, 0, .35);
+  --shadow-drag: 0 12px 30px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
 }
 
 * { box-sizing: border-box; }
@@ -469,6 +486,10 @@ kbd {
 .connectors { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .connectors path { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
 .connectors path.active-connector { stroke: var(--ink); }
+/* While a card is being dragged its connections darken, so moving a card shows
+   what it is attached to instead of leaving the link to be rediscovered after
+   the drop. */
+.connectors path.dragging-connector { stroke: var(--ink-3); }
 .connectors .draft-connector { stroke: var(--ink-3); stroke-dasharray: 4 5; }
 .cards-layer { position: absolute; inset: 0; }
 
@@ -492,45 +513,87 @@ kbd {
 [data-theme='dark'] .thread-card.selected { box-shadow: 0 0 0 3px rgba(242, 241, 238, .07), var(--shadow-raise); }
 
 /* A session that is answering: the newest card of that thread breathes.
-   Only border-colour and an existing (already translucent) shadow animate, so
-   the effect is transform/opacity-cheap and never nudges layout. A stronger
-   variant (`.is-streaming.is-selected`) is unnecessary: the selected ring
-   already marks the focused card, and adding a second ring would stack two. */
+   The signal is a **halo**, not a line: the card's own border stays the neutral
+   hairline it has at rest, and a blurred, hue-tinted shadow swells and fades
+   around it (blur radius and spread move together with the alpha, so the light
+   looks like it is being exhaled rather than toggled). A 1px blue border read as
+   a static state; a halo reads as activity.
+   Only box-shadow animates — no layout, no repaint of the card's contents — and
+   the theme supplies the hues, so there is one keyframe set, not two.
+   A stronger variant (`.is-streaming.is-selected`) is unnecessary: the selected
+   ring already marks the focused card, and adding a second ring would stack two. */
 .thread-card.is-streaming {
-  border-color: var(--info);
-  animation: card-streaming 2.2s ease-in-out infinite;
+  animation: card-streaming 2.6s ease-in-out infinite;
 }
 .thread-card.is-streaming .thread-title { color: var(--info); }
 @keyframes card-streaming {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(31, 108, 159, 0), var(--shadow-lift); }
-  50% { box-shadow: 0 0 0 3px rgba(31, 108, 159, .18), var(--shadow-raise); }
-}
-[data-theme='dark'] .thread-card.is-streaming {
-  animation-name: card-streaming-dark;
-}
-@keyframes card-streaming-dark {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(147, 193, 230, 0), var(--shadow-lift); }
-  50% { box-shadow: 0 0 0 3px rgba(147, 193, 230, .22), var(--shadow-raise); }
+  0%, 100% { box-shadow: 0 0 6px 1px var(--stream-glow-soft), var(--shadow-lift); }
+  50% { box-shadow: 0 0 34px 2px var(--stream-glow), var(--shadow-raise); }
 }
 
+/* ── the grip that moves a card ────────────────────────────────────────────
+   A 30×18 tab straddling the card's top edge, holding three dots. It is a *tab*
+   at rest, not bare dots: dots alone sit **on** the border hairline, where one of
+   them merges with the line and the rest read as specks stuck to the edge. Four
+   treatments were rendered before picking this one (bare dots / quiet tab / tab
+   floating outside the edge / grip inside the card) — the quiet tab is the only
+   one that reads as a handle without shouting. So: surface fill + `--line`
+   hairline always, and hover only firms the hairline and darkens the dots.
+
+   Centring is `translate`, NOT `transform: translateX(-50%)`. The global
+   `button:active { transform: scale(.98) }` replaces a transform, so the old
+   `transform`-based centring jumped the tab **13px** to the right the instant you
+   pressed it (measured) — the tab must not move while you are grabbing it.
+   `:active` also opts out of that press-scale for the same reason: the feedback
+   for picking a card up is the card lifting, not the grip shrinking. */
 .node-handle {
   position: absolute;
-  top: -7px;
+  top: -9px;
   left: 50%;
   display: grid;
-  width: 26px;
-  height: 14px;
-  min-height: 14px;
+  width: 30px;
+  height: 18px;
+  min-height: 18px;
   place-items: center;
-  transform: translateX(-50%);
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  translate: -50% 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
   background: var(--surface);
+  color: var(--ink-3);
   padding: 0;
   cursor: grab;
+  opacity: .8;
+  transition: opacity var(--speed) ease, border-color var(--speed) ease, color var(--speed) ease;
 }
-.node-handle::after { content: '···'; display: block; margin-top: -3px; color: var(--ink-3); font-size: 10px; letter-spacing: 1px; line-height: 1; }
-.node-handle:hover { border-color: var(--ink-3); }
+/* Three dots drawn with a box-shadow row rather than the '···' glyph: a font's
+   dot size and vertical metrics cropped against the tab's edge (the old dots sat
+   visibly high and uneven). */
+.node-handle::after {
+  content: '';
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: -5px 0 0 currentColor, 5px 0 0 currentColor;
+}
+/* Each state owns its declarations: a comma-joined selector list means deleting
+   one class silently strips the others (the lesson from the shared `display`
+   list that once collapsed a card title). */
+.thread-card:hover .node-handle { opacity: 1; }
+.node-handle:hover { opacity: 1; border-color: var(--line-strong); color: var(--ink-2); }
+.node-handle:active { transform: none; cursor: grabbing; }
+.thread-card.is-dragging .node-handle { opacity: 1; cursor: grabbing; border-color: var(--ink-3); color: var(--ink-1); }
+
+/* The grab has to have a visible owner. Position is written inline every frame
+   and is not transitionable anyway; the lift itself appears instantly (a
+   pickup should not ease in) while the drop settles back over the card's own
+   200ms because the class is gone by then. */
+.thread-card.is-dragging {
+  z-index: 5;
+  border-color: var(--ink-3);
+  box-shadow: var(--shadow-drag);
+  transition: none;
+}
 
 /* The ring is pinned to the top-right corner, so the title reserves that
    corner rather than relying on titles being short. */
@@ -710,10 +773,13 @@ kbd {
   background: var(--violet-bg);
   transition: border-color var(--speed) ease, box-shadow var(--speed) ease;
 }
-.btw-widget.is-running { border-color: var(--violet); animation: btw-streaming 2.2s ease-in-out infinite; }
+/* Same halo as a running card, scaled down: this is a 170×32 pill, so the radii
+   shrink with it, and the border stays the resting `--violet-line` instead of
+   turning solid violet. Only box-shadow animates. */
+.btw-widget.is-running { animation: btw-streaming 2.6s ease-in-out infinite; }
 @keyframes btw-streaming {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(90, 74, 134, 0); }
-  50% { box-shadow: 0 0 0 3px rgba(90, 74, 134, .16); }
+  0%, 100% { box-shadow: 0 0 4px 1px var(--btw-glow-soft); }
+  50% { box-shadow: 0 0 18px 2px var(--btw-glow); }
 }
 .btw-widget-open { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; border: 0; border-radius: 0; background: transparent; padding: 0 4px 0 8px; color: var(--violet); }
 .btw-widget-open:hover { border: 0; background: transparent; color: var(--violet); text-decoration: underline; text-decoration-color: var(--violet-line); text-underline-offset: 3px; }
@@ -961,6 +1027,7 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
   /* The streaming indicator must survive reduced motion as a static state:
-     animation off, border stays blue. */
-  .thread-card.is-streaming { animation: none; }
+     animation off, the halo parked at its brightest. */
+  .thread-card.is-streaming { animation: none; box-shadow: 0 0 24px 2px var(--stream-glow), var(--shadow-raise); }
+  .btw-widget.is-running { animation: none; box-shadow: 0 0 14px 2px var(--btw-glow); }
 }
