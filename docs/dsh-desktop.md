@@ -77,10 +77,22 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | 运行中/流式 | 父页面订阅 pi-web 的 SSE | client 半区保留 running 会话的引用，读它 event window 里的 `assistant/live-chunk`（`text-delta` 拼接） |
 | 主题 | `documentElement.dataset.theme` / `dark` class | `body[data-ds-dark-theme]`（client 半区转成 `synapse:theme`） |
 | 写操作（新建/发消息/分支/改名/归档） | 浏览器直接调 pi-web 的 `/api/*`（pi-web 要求 `Origin` 等于自己的 `Host`，只有页面能发） | 画布调 `/synapse/api/host/*`，插件在本进程内调 harness 服务（`ctx.sessionController` / `ctx.workspaceController`） |
+| 切换条位置 | pi-web 页面上居中悬浮（`src/canvas/bridge.js` 注入） | 宿主头部的操作区（`[class*="_headerCorner"]`）里第一个子节点，紧邻文件管理器/面板开关那排；遮罩从该头部下沿开始 |
+
+### 5.1 切换条为什么长在头部操作区里
+
+宿主**没有**为这个位置提供 slot（`dsh-client-ui-slots` 里只有 `sidebar` / `main` / `rightbar` / `shell.overlay` / `shell.leading` 这些框架级席位），所以切换条是 DOM 注入的，用 CSS-module 的**本地名**匹配（`*_headerCorner`）：哈希前缀每次构建都变，本地名不变。
+
+两条推论，都是踩过才知道的：
+
+1. **遮罩必须从头部下沿开始。** 否则地图视图下遮罩会把整个头部（包括里面的切换条）盖住 —— 按钮恰好在最需要它的时候点不到。实测：`inset: var(--synapse-header-bottom)`，值由头部自身的 `getBoundingClientRect().bottom` 算出（并兼顾了 `--dsh-frame-chrome-top`，因为页面坐标已经在原生标题栏之下）。
+2. **注入的节点会被 React 重渲染丢掉。** 切会话/切主题都会重建头部，所以要用 MutationObserver（rAF 合帧）幂等地重挂，并重算头部下沿。
+
+头部找不到时（全屏框架、以后的布局改版）切换条回到自己的容器里当悬浮胶囊 —— **只降级位置，不降级功能**。
 
 选择哪条通道不是画布决定的：`/synapse/api/status` 报 `writeTransport`（`'host'` / `'synapse'`），画布据此安装；未知值直接报错，不猜。画布只会调语义化操作（`hostSendMessage` / `hostForkSession` / `hostRenameSession` / `hostArchiveSession` / `hostEnsureSession`），宿主自己的命令词（`prompt` / `fork_branch` / `set_tools`）不外泄到 `app.js`。
 
-### 5.1 DSH 的写操作具体怎么落
+### 5.2 DSH 的写操作具体怎么落
 
 | 画布动作 | 路由 | harness 调用 |
 |---|---|---|
@@ -165,3 +177,6 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 53. **`sessionController.list()` 不按归档集过滤。** 归档集（`workspaceRegistry.archivedSessionIds`）是 registry 的全局状态，只由客户端 UI 用来过滤侧栏；宿主列表照旧返回已归档的会话。所以「归档成功」要看 `storages/workspace.json` 的 `global.archivedSessionIds`，用会话数量变化去判断会得出错误结论。
 54. **画布调不到 harness 的写服务。** 它们是本进程内的 cordis 服务，不是页面上某个 origin 的 HTTP 路由，pi-web 那套「同源 + 浏览器直接发」搬不过来。写操作因此必须由宿主插件代做（`writeTransport: 'synapse'`），并且这条路要显式声明：默认值仍是 `'host'`，缺字段时不会把写操作悄悄改道。
 55. **DSH 的 Remote 失败不能用 `instanceof` 判。** 类会被 Gateway 跨 bundle 重建，官方判据是 `code` 字符串（`isDSHRemoteError === true` 是结构标记）。而且「请求有问题」与「harness 自己坏了」共用同一个类：域内 code 应当回 400 带原文，`gateway/internal` 才该是 500 —— 一律当 500 会把用户能自己修的问题藏进服务器错误。
+56. **自己注入的 UI 不能被自己的遮罩盖住。** 切换条原来浮在标题上，遮罩从 `--dsh-frame-chrome-top` 起 —— 地图视图下整条头部（连同切换条）都在遮罩之下，**回不到对话视图**。搬到头部操作区后必须同时把遮罩起点压到头部下沿（`--synapse-header-bottom` = 头部 `getBoundingClientRect().bottom`），否则按钮在需要它的那个视图里点不到。判断可见性要用 `elementFromPoint` 命中自己，不能只看 `getBoundingClientRect`。
+57. **注入到 React 组件里的节点会被重渲染丢掉。** 切会话/切主题都会重建头部，头部操作区里那个 `prepend` 进去的节点随之消失（外表现为「切换条时有时无」）。用 MutationObserver（rAF 合帧，避免流式期间每帧回调）幂等重挂，并顺手重算头部下沿。
+58. **CSS-module 的哈希前缀会变，本地名不变。** 选宿主元素只能匹配 `*_headerCorner` 这种后半段（实测哈希是 `wSkVaW_headerCorner`）。反过来，`[class*="_header"]` 这种写宽了会命中别的东西（实测命中了正文里的 `bhn1Oq_headerActions`），拿它量头部高度会把画布起点算到 198px 而不是 40px。

@@ -171,11 +171,35 @@ try {
   const appText = await frame().evaluate(() => document.querySelector('#app')?.textContent?.length ?? 0)
   check('iframe 里画布真的渲染了', appText > 0, `#app ${appText} 字`)
 
-  // B. 宿主文案：画布不该在 DSH 里自称 pi-web
+  // B. 切换条长在宿主自己的头部操作区里（紧邻文件管理器），而不是浮在标题上
+  const placement = () => page.evaluate(() => {
+    const bar = document.querySelector('.synapse-switch')
+    const corner = document.querySelector('[class*="_headerCorner"]')
+    const header = corner?.closest('header')
+    const rect = bar?.getBoundingClientRect()
+    const hit = rect === undefined ? null : document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+    return {
+      inCorner: bar?.parentElement === corner && corner !== null,
+      firstChild: (corner?.firstElementChild?.className ?? '').toString().includes('synapse-switch'),
+      overlayTop: getComputedStyle(document.querySelector('.synapse-overlay')).top,
+      headerBottom: `${Math.round(header?.getBoundingClientRect().bottom ?? -1)}px`,
+      visible: rect !== undefined && rect.width > 0 && rect.height > 0,
+      hitIsBar: hit?.closest('.synapse-switch') !== null && hit?.closest('.synapse-switch') !== undefined,
+    }
+  })
+  const dialogPlacement = await placement()
+  check('切换条落在宿主头部的操作区里', dialogPlacement.inCorner === true, JSON.stringify(dialogPlacement))
+  check('排在操作区最前（紧邻文件管理器那排按钮）', dialogPlacement.firstChild === true)
+  check('画布从头部下方开始（头部在地图视图里仍可见）', dialogPlacement.overlayTop === dialogPlacement.headerBottom, `overlay=${dialogPlacement.overlayTop} header=${dialogPlacement.headerBottom}`)
+
+  const mapPlacement = await placement()
+  check('地图视图下切换条仍可见且没被画布盖住', mapPlacement.visible && mapPlacement.hitIsBar, JSON.stringify(mapPlacement))
+
+  // C. 宿主文案：画布不该在 DSH 里自称 pi-web
   const hostButton = await frame().evaluate(() => document.querySelector('.thread-card [data-action="open-host"]')?.textContent?.trim() ?? '')
   check('卡片页脚按宿主命名（DSH）', hostButton.includes('DSH'), JSON.stringify(hostButton))
 
-  // C. 新建会话 + 发消息（真模型）
+  // D. 新建会话 + 发消息（真模型）
   await frame().click('button[data-action="create-session"]')
   await frame().waitForSelector('[data-draft] textarea', { timeout: 15_000 })
   await frame().fill('[data-draft] textarea', '画布发来的第一条消息')
@@ -189,16 +213,20 @@ try {
   check('画布新建的会话落在 DSH 里', created !== undefined, created === undefined ? '卡片没出现' : `sessionId=${created.sessionId}`)
   check('模型真的回答了（写操作 + 投影闭环）', created?.messages.some(text => text.startsWith('assistant:')) === true, JSON.stringify(created?.messages.at(-1)?.slice(0, 60) ?? null))
 
-  // D. 分支：画布的 entry id 要变成宿主的事件 seq
+  // E. 分支：画布的 entry id 要变成宿主的事件 seq
   //
   // 等卡片「落定」再找按钮：轮询期间那轮的答案可能还在流式（页面把 live 文本当成
   // pending 答案画上去，没有 sourceEntryId，也就没有分支入口），而 store() 读的是
   // 服务端的库，两者不同步。超时也要把卡片的状态报出来，否则失败无从判断。
-  let branchButton = null
+  //
+  // 全程用选择器而不是元素句柄：画布会因投影刷新重渲染，握住句柄再点会
+  // `Element is not attached to the DOM`；frame().click(selector) 每次都重新解析。
+  const BRANCH = '.thread-card [data-action="open-branch"]'
+  let atSeq = null
   let cardState = '卡片还没出现'
-  for (let attempt = 0; attempt < 40 && branchButton === null; attempt++) {
+  for (let attempt = 0; attempt < 40 && atSeq === null; attempt++) {
     await sleep(1_500)
-    branchButton = await frame().$('.thread-card [data-action="open-branch"]')
+    atSeq = await frame().evaluate(selector => document.querySelector(selector)?.dataset.seq ?? null, BRANCH)
     cardState = await frame().evaluate(() => {
       const state = window.__synapse?.state
       const cards = state?.canvasCards ?? []
@@ -207,10 +235,9 @@ try {
       return `${cards.length} 张卡，最后一张 answer=${card.answer === null ? 'null' : `${card.answer.pending === true ? 'pending' : 'settled'}:${card.answer.sourceEntryId ?? '-'}`}`
     })
   }
-  check('卡片上有「分支」入口（这一轮有回答）', branchButton !== null, cardState)
-  if (branchButton !== null) {
-    const atSeq = await branchButton.evaluate(node => node.dataset.seq)
-    await branchButton.click()
+  check('卡片上有「分支」入口（这一轮有回答）', atSeq !== null, cardState)
+  if (atSeq !== null) {
+    await frame().click(BRANCH)
     await frame().waitForSelector('[data-draft] textarea', { timeout: 15_000 })
     await frame().fill('[data-draft] textarea', '这是分支上的问题')
     await frame().click('[data-draft] button[type="submit"]')
@@ -223,7 +250,7 @@ try {
     check('分支会话被宿主真的 fork 出来', typeof branched?.sessionId === 'string' && branched.sessionId !== created?.sessionId, `卡片 data-seq=${atSeq} → ${branched?.sessionId ?? '无'}`)
   }
 
-  // E. 改名
+  // F. 改名
   dialogAnswer = '画布改的标题'
   await frame().click('.thread-card [data-action="rename-thread"]')
   let renamed = null
@@ -234,7 +261,7 @@ try {
   }
   check('改名写进了 DSH 的会话记录', renamed !== undefined, JSON.stringify(renamed?.sessionTitle ?? null))
 
-  // F. 归档：先取消归档，好让这次点击真的产生一次状态变化
+  // G. 归档：先取消归档，好让这次点击真的产生一次状态变化
   const archiveButton = await frame().$('.thread-card[data-thread] [data-action="host-archive"]')
   const targetThread = await archiveButton?.evaluate(node => node.closest('.thread-card').dataset.thread)
   const targetSession = (await store()).find(thread => thread.id === targetThread)?.sessionId
@@ -253,7 +280,7 @@ try {
     check('归档落进 DSH 的归档集', before === false && archivedInHost().includes(targetSession), `session=${targetSession}${canvasError === '' ? '' : ' 画布报错：' + canvasError}`)
   }
 
-  // G. 宿主拒绝要带原文（画布能自己修的问题不该显示成服务器故障）
+  // H. 宿主拒绝要带原文（画布能自己修的问题不该显示成服务器故障）
   //
   // 这一步故意打一个 400，浏览器会记一条「Failed to load resource」控制台错误，
   // 所以页面错误的断言只看这一步之前。

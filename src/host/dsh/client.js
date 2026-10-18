@@ -14,6 +14,20 @@
  *     modules, so this file imports nothing at all — plain DOM + postMessage.
  *   - `document.body` may not exist yet when `apply` runs (the pi-web injection
  *     path hit the same floor), hence the DOMContentLoaded fallback.
+ *
+ * WHERE THE SWITCH BAR LIVES: in the header's own action corner — the row that
+ * holds “open in application”, the overflow menu and the panel toggle — so it
+ * sits beside them instead of floating over the session title. DSH publishes no
+ * slot for that corner, so the bar is moved into it by DOM, matched on the
+ * CSS-module LOCAL name (`*_headerCorner`, stable across builds while the hash
+ * prefix is not). Two consequences worth stating:
+ *
+ *   - the overlay starts BELOW that header, so the header (and the switch bar
+ *     inside it) stays visible and clickable in map view — a bar inside a header
+ *     the canvas covers would be unreachable exactly when it is needed;
+ *   - when the corner is absent (a fullscreen frame, a future layout), the bar
+ *     falls back to its own container as a floating pill and the reason is
+ *     logged — a placement, never a feature, degrades.
  */
 // `__ModuleLoader__` is the application's own bundle registrant, not a DOM global;
 // the cast states that this file only makes sense inside that runtime.
@@ -28,9 +42,11 @@ loader.load({
     const CHILD_SOURCE = 'synapse'
     const HOST_ID = 'synapse-host'
     const CANVAS_URL = '/synapse/'
-    // DSH's own chrome metric: the band above the content (Windows title bar,
-    // macOS traffic lights). The switch bar and the overlay both start below it.
-    const CHROME_TOP = 'var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, 0px))'
+    // The header's action corner, by CSS-module local name.
+    const HEADER_CORNER = '[class*="_headerCorner"]'
+    // How far down the canvas starts: the header's own bottom edge, published as
+    // a custom property so the overlay's `inset` can read it.
+    const HEADER_BOTTOM_VAR = '--synapse-header-bottom'
 
     module.exports.inject = ['sessions']
     module.exports.apply = (/** @type {any} */ ctx) => {
@@ -38,23 +54,19 @@ loader.load({
 
       const style = document.createElement('style')
       style.textContent = `
-        .synapse-switch{position:fixed;z-index:400;top:calc(${CHROME_TOP} + 12px);left:50%;display:flex;gap:2px;transform:translateX(-50%);border:1px solid #eaeaea;border-radius:7px;background:rgba(255,255,255,.94);padding:3px;backdrop-filter:blur(10px)}
-        .synapse-switch button{height:26px;border:0;border-radius:5px;background:transparent;padding:0 12px;color:#615e58;font:500 12px 'Geist Local',-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;white-space:nowrap;transition:background .2s ease,color .2s ease}
-        .synapse-switch button:hover{background:#f4f3f0;color:#111111}
-        .synapse-switch button.active{background:#111111;color:#fff}
-        .synapse-switch button:focus-visible{outline:2px solid rgba(17,17,17,.5);outline-offset:2px}
-        .synapse-overlay{position:fixed;z-index:300;inset:${CHROME_TOP} 0 0 0;background:#f7f6f3}
+        /* In the header corner: the app's own small-button metrics and design
+           tokens, so it reads as part of the row and follows the theme. */
+        .synapse-switch{display:flex;align-items:center;gap:2px;height:28px;margin-inline-end:4px}
+        .synapse-switch button{height:28px;border:0;border-radius:var(--dsw-radius-sm,6px);background:transparent;padding:0 10px;color:var(--dsw-alias-label-secondary,#615e58);font:500 12px/1 inherit;white-space:nowrap;cursor:pointer}
+        .synapse-switch button:hover{background:var(--dsw-alias-interactive-bg-hover,#f4f3f0);color:var(--dsw-alias-label-primary,#111111)}
+        .synapse-switch button.active{background:var(--dsw-alias-button-primary-fill,#111111);color:var(--dsw-alias-label-primary-foreground,#fff)}
+        .synapse-switch button:focus-visible{outline:2px solid var(--dsw-alias-border-l3,#111111);outline-offset:2px}
+        /* No corner to sit in: back to a floating pill above everything. */
+        .synapse-host > .synapse-switch{position:fixed;z-index:400;top:calc(var(--dsh-frame-chrome-top, 0px) + 12px);left:50%;transform:translateX(-50%);height:auto;gap:2px;border:1px solid var(--dsw-alias-border-l2,#eaeaea);border-radius:7px;background:var(--dsw-alias-bg-base,rgba(255,255,255,.94));padding:3px;backdrop-filter:blur(10px)}
+        /* Starts below the host header so the header stays usable in map view. */
+        .synapse-overlay{position:fixed;z-index:300;inset:var(${HEADER_BOTTOM_VAR}, 0px) 0 0 0;background:var(--dsw-alias-bg-base,#f7f6f3)}
         .synapse-overlay[hidden]{display:none}
         .synapse-overlay iframe{display:block;width:100%;height:100%;border:0}
-        /* DSH publishes the resolved theme on <body>; following that (rather than
-           prefers-color-scheme) keeps a manual choice in force. */
-        body[data-ds-dark-theme] .synapse-switch{background:rgba(22,24,26,.94);border-color:#26282c}
-        body[data-ds-dark-theme] .synapse-switch button{color:#a5a29b}
-        body[data-ds-dark-theme] .synapse-switch button:hover{background:#1e2124;color:#f2f1ee}
-        body[data-ds-dark-theme] .synapse-switch button.active{background:#f2f1ee;color:#111111}
-        body[data-ds-dark-theme] .synapse-overlay{background:#0e0f11}
-        html[data-fullscreen] .synapse-switch{top:12px}
-        html[data-fullscreen] .synapse-overlay{inset:0}
       `
       document.head.append(style)
 
@@ -77,6 +89,37 @@ loader.load({
         frame.contentWindow.postMessage({ source: SOURCE, type, ...payload }, location.origin)
       }
 
+      // ---------- placement ----------
+      /**
+       * Move the bar into the header corner, and keep the overlay starting below
+       * that header.
+       *
+       * Called from a MutationObserver as well as at startup, because React owns
+       * that corner: a session switch or a theme change re-renders the header and
+       * can drop a node it did not create. The check is cheap and idempotent —
+       * one query and one rect read when nothing moved.
+       */
+      let placementFrame = 0
+      function syncPlacement() {
+        const corner = document.querySelector(HEADER_CORNER)
+        if (corner === null) {
+          if (switchBar.parentElement !== host) host.prepend(switchBar)
+          document.documentElement.style.setProperty(HEADER_BOTTOM_VAR, '0px')
+          return
+        }
+        if (switchBar.parentElement !== corner) corner.prepend(switchBar)
+        const header = corner.closest('header') ?? corner
+        const bottom = Math.round(header.getBoundingClientRect().bottom)
+        if (bottom > 0) document.documentElement.style.setProperty(HEADER_BOTTOM_VAR, `${bottom}px`)
+      }
+      const schedulePlacement = () => {
+        if (placementFrame !== 0) return
+        placementFrame = window.requestAnimationFrame(() => { placementFrame = 0; syncPlacement() })
+      }
+      const placementObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedulePlacement)
+      placementObserver?.observe(document.body ?? document.documentElement, { childList: true, subtree: true })
+      window.addEventListener('resize', schedulePlacement)
+
       // ---------- view switching ----------
       let view = 'dialog'
       function show(next) {
@@ -88,11 +131,12 @@ loader.load({
           button.setAttribute('aria-pressed', String(active))
         }
       }
-      switchBar.addEventListener('click', event => {
+      const onSwitchClick = event => {
         const button = event.target instanceof Element ? event.target.closest('button') : null
         if (button === null) return
         show(button.dataset.view)
-      })
+      }
+      switchBar.addEventListener('click', onSwitchClick)
       const onKeyDown = event => { if (event.key === 'Escape' && view === 'map') show('dialog') }
       document.addEventListener('keydown', onKeyDown)
 
@@ -240,16 +284,20 @@ loader.load({
       })
 
       ctx.effect(() => () => {
-        switchBar.removeEventListener('click', show)
+        switchBar.removeEventListener('click', onSwitchClick)
         document.removeEventListener('keydown', onKeyDown)
+        window.removeEventListener('resize', schedulePlacement)
         window.removeEventListener('message', onMessage)
+        placementObserver?.disconnect()
         themeObserver?.disconnect()
         unsubscribeSessions()
         for (const [id, record] of [...live]) detachLive(id, record)
         host.remove()
         style.remove()
+        document.documentElement.style.removeProperty(HEADER_BOTTOM_VAR)
       }, 'synapse: view switch')
 
+      syncPlacement()
       postTheme()
       postCurrent()
       syncLive()
