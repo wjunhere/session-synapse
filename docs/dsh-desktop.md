@@ -56,13 +56,17 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 ## 4. 装进 desktop profile
 
-`dsh` CLI 明确拒绝 `--profile desktop`（`managed exclusively by the Electron application`），profile 三件套由 app 自己维护（每次改动留 `*.bak-<stamp>`）：
+**用 app 自己的插件管理（设置 → 插件）**，不要手改 profile：
 
-1. `~/.dsh/profiles/desktop/package.json`：`dependencies` 加 `"session-synapse": "link:<repo>"`，`dsh.profile.bundles` 追加 `"session-synapse"`；
-2. 在该目录用运行时自带的 pnpm 安装：`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`；
-3. 重启 app。
+- 桌面 profile 由 Electron 应用独占，`dsh plugin --profile desktop add …` 会被直接拒绝（`profile "desktop" is managed exclusively by the Electron application`）。
+- app 内那条路径就是宿主插件 `@deepseek-ai/dsh-plugin-manager` 的 `installBundle(spec)`：`spec` 支持 registry 名、git、以及**绝对路径 / `link:`**（`parseInstallSpec`：去掉 `file:`/`link:` 前缀后必须是绝对路径，否则报 `a local path must be absolute`）。它跑 pnpm、写 profile、激活 bundle。
+- 所以本地开发装的是**路径**，不是包名：在安装对话框里填仓库的绝对路径（如 `B:\vibe_program\session-synapse`）。
 
-`$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh web`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
+改完 profile 要重启 app（模块图在启动时建）。
+
+想手改也可以，但要知道 app 会把它改回来：profile 三件套（`package.json` / `cordis.patch.yml` / `pnpm-lock.yaml`）每次改动 app 都会留 `*.bak-<stamp>`，手改必须同时做两件事 —— `dependencies` 加 `"session-synapse": "link:<repo>"`、`dsh.profile.bundles` 追加 `"session-synapse"`，然后用运行时自带的 pnpm 在那个目录装（`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`）。
+
+`$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh rescue …`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
 
 ## 5. 画布侧的宿主差异
 
@@ -99,7 +103,15 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 ## 6. 验证
 
-隔离实例（不碰真实会话）：
+一条命令跑完整套（自己起隔离 harness、自己清理）：
+
+```bash
+npm run verify:dsh
+```
+
+`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 15 项（切换条/能力/宿主文案/新建+发消息/分支/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+
+手动起一个隔离实例（套件里那套步骤，拆开看）：
 
 ```bash
 # 1) 用临时 home 建一个从官方 web 模板派生的 profile，并把插件装进去
@@ -130,11 +142,12 @@ await composer.click(); await composer.type('写一篇 400 字短文…'); await
 写操作分两层验，两层都跑真宿主：
 
 ```bash
-node B:/vibe_program/tmp/probe-dsh-writes.mjs      # 页面内 fetch 直接打 /synapse/api/host/*
-node B:/vibe_program/tmp/probe-dsh-ui-writes.mjs   # 真按画布按钮：新建/发消息/分支/改名/归档
+npm run verify:dsh                                   # 仓库里的套件（推荐）
+node B:/vibe_program/tmp/probe-dsh-writes.mjs        # 页面内 fetch 直接打 /synapse/api/host/*
+node B:/vibe_program/tmp/probe-dsh-ui-writes.mjs     # 真按画布按钮：新建/发消息/分支/改名/归档
 ```
 
-UI 探针里有两处必须记住的细节：`data-thread` 是**画布线程 id**（不是会话 id，会话 id 形如 `session-<uuid>`）；画布会因投影刷新重渲染，元素句柄会失效，点之前要重新取。
+UI 探针里有两处必须记住的细节：`data-thread` 是**画布线程 id**（不是会话 id，会话 id 形如 `session-<uuid>`）；画布会因投影刷新重渲染，元素句柄会失效，点之前要重新取。第三处是套件里的真问题：**`store()` 读服务端的库，卡片却是从页面自己的 `state.workspace` 渲染的**，两者不同步 —— 刚发出的那轮在页面上可能还带着 pending 占位答案（没有 `sourceEntryId`，就没有分支入口），所以要**轮询等卡片落定**而不是看一眼就断言。
 
 desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片能跳会话。host realm 可调试：CDP `ws://127.0.0.1:9230/devtools/page/<id>`（target 是 `dsh://host`）。
 

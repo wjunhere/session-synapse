@@ -26,10 +26,13 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 110 个单测（投影 28 + 上下文 17 + 存储 33 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
+npm test                                  # 128 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 9 + 上下文 17 + 存储 33 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
 npm run verify                            # 全套回归：起服务 → 23 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
+npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），15 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 ```
+
+**两个回归入口是分开的**，因为世界不同：`npm run verify` 的 23 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
 
 单独跑某个套件（脚本统一读 `BASE`，默认 `http://127.0.0.1:30143`）：
 

@@ -4,6 +4,8 @@
 
 pi-web 让你看清一个会话，session-synapse 让你看清所有会话之间的关系。
 
+它也以插件形式跑在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）里：同一张画布、同一份代码，顶部切换条里叫「会话地图」。
+
 ## 它做什么
 
 | 能力 | 说明 |
@@ -40,6 +42,28 @@ node bin/synapse.js start
 
 - Node.js ≥ 22.19.0
 - **pi-web 必须已在运行**（默认 `127.0.0.1:30100`）。未启动会看到上游连接错误；用 `--spawn` 可让 synapse 顺带把它拉起来。
+
+### 在 DeepSeek Harness（dsh）里用
+
+画布以**宿主插件**的形式挂进 harness：同一个进程，直接读它的会话服务，不另外起服务、不反代。
+
+```bash
+dsh plugin add link:/绝对路径/到/session-synapse   # 装进当前 profile
+dsh web                                            # 启动后顶部出现「对话 / 会话地图」
+```
+
+桌面版（Electron 应用）**不要手改 profile**：那个 profile 由应用独占，`dsh plugin --profile desktop` 会被拒绝。在应用里用「设置 → 插件」安装，填仓库的**绝对路径**即可（插件管理器接受 registry 名、git、绝对路径/`link:` 三种写法）。装完重启应用。
+
+| 在 dsh 里 | 行为 |
+|---|---|
+| 会话地图 / 卡片 / 工具折叠 / 布局持久化 | 与 pi-web 下一样 |
+| 上下文圆环 | 用 harness 自己测的占用（不是估算），数字与它自己的转写一致 |
+| 画布内发消息 / 新建会话 / 分支 / 改名 / 归档 | 走 harness 的会话服务，真写进会话记录 |
+| 点「DSH」跳会话 | 切到 harness 的对话视图 |
+| 运行中会话的实时文字 | 有（同进程才有；`dsh headless` 在别的进程写的会话只能事后发现） |
+| `/btw` 侧问 | **没有**：harness 没有「按会话固定工具清单」这回事，所以不提供这个按钮 |
+
+画布元数据存在 `$DSH_HOME/session-synapse/workspaces.json`，与 pi 那份互不干扰。
 
 ## 选项
 
@@ -129,12 +153,16 @@ synapse: 已有实例正在使用这份画布数据（PID 27948，端口 30142�
 ```bash
 npm install
 npm run check                    # 静态类型检查（基线 0 问题）
-npm test                          # 105 个单测，不需要启动服务
+npm test                          # 128 个单测，不需要启动服务
 
 # 全套端到端回归：需要 pi-web 已在 30100 运行（脚本不替你启停它）
-npm run verify                    # 自己起服务、跑完 19 个套件、清理、汇总成一张表
+npm run verify                    # 自己起服务、跑完 23 个套件、清理、汇总成一张表
 npm run verify -- --skip-browser  # 只跑不需要 Chromium 的套件
 npm run verify -- --only branch   # 按脚本名筛选
+
+# DSH 适配的回归：自己起一个隔离的 harness（临时 DSH_HOME），跑完自动清理
+# 前置：dsh 在 PATH 上 + 有可用凭据（它会真的调模型）
+npm run verify:dsh
 ```
 
 `npm run verify` 用**独立的临时数据文件**起服务（不碰你真实的画布数据），在一次性 cwd 里造探测会话，跑完自动清理；失败时会**保留 run 目录**并打印路径，里面有每个套件的完整日志。单独跑某个脚本也可以（它们读 `BASE`，默认 `http://127.0.0.1:30143`；会创建会话的还要传 `PROBE_CWD`，且目录必须先存在）——完整清单见 [AGENTS.md](AGENTS.md) 的「测试」一节。
