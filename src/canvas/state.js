@@ -16,10 +16,14 @@ import {
   clearCardPositions, persistBranchAnchors,
   persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistQuickPhrases as saveQuickPhrases,
 } from './storage.js'
+import { hostLabels } from './host-labels.js'
 
 export const state = {
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentSession: null, sidebarCollapsed: false,
   capabilities: { sendMessage: false, forkSession: false, openSession: false, archiveSession: false, renameSession: false, btw: false, setTools: false },
+  // Host wording (button labels, empty-state hints). Neutral until
+  // /synapse/api/status names the adapter — see host-labels.js.
+  hostLabels: hostLabels(undefined),
   // The host's read-only preset, echoed back by /synapse/api/status so the two
   // never drift; the fallback matches pi-web's own `PRESET_READ_ONLY`.
   readOnlyTools: ['read', 'grep', 'find', 'ls'],

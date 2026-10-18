@@ -15,6 +15,7 @@ import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, 
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH } from './storage.js'
 import { api, piWeb, post, openSessionInHost, hostCommand, hostEnsureSession, hostForkSession, hostBtwSession } from './host.js'
+import { hostLabels } from './host-labels.js'
 
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
@@ -258,7 +259,7 @@ function openNewSession() {
 /** Rename the host session; the canvas mirrors whatever the host accepts. */
 async function renameThread(thread) {
   const current = thread.sessionTitle ?? thread.title ?? ''
-  const next = window.prompt('重命名这个会话（会写入 pi 的会话文件）', current)
+  const next = window.prompt('重命名这个会话（会写入宿主的会话记录）', current)
   if (next === null) return
   const name = next.trim()
   if (name === '' || name === current) return
@@ -304,7 +305,7 @@ async function archiveInHost(thread, archived = true) {
 }
 
 async function archiveThread(thread) {
-  if (!window.confirm(`归档画布中的「${thread.title}」及其分支？原会话会保留，可在 pi-web 内继续查看。`)) return
+  if (!window.confirm(`归档画布中的「${thread.title}」及其分支？原会话会保留，${state.hostLabels.archiveHint}。`)) return
   await api(`/synapse/api/threads/${thread.id}`, { method: 'DELETE' })
   state.detailScrollByThread.delete(thread.id)
   state.detailTargetCardId = state.detailThreadId === thread.id ? null : state.detailTargetCardId
@@ -951,7 +952,7 @@ function conversationCard(card, graph) {
   // semantic one — the same is already true of the existing 分支 button.
   const btwButton = state.capabilities.btw !== true || !(typeof card.answer?.sourceEntryId === 'string' && card.answer.sourceEntryId !== '')
     ? ''
-    : `<button class="graph-btw-button" data-action="open-btw" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceEntryId}" aria-label="开启侧问（继承上下文、只读工具）" title="侧问：继承当前上下文，只给只读工具，自动归档到 pi-web 归档视图">${ICON(`<path d="${ICON_PATHS.speaker}"/><path d="${ICON_PATHS.speakerAdd}"/>`)}</button>`
+    : `<button class="graph-btw-button" data-action="open-btw" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceEntryId}" aria-label="开启侧问（继承上下文、只读工具）" title="侧问：继承当前上下文，只给只读工具，${state.hostLabels.btwArchiveHint}">${ICON(`<path d="${ICON_PATHS.speaker}"/><path d="${ICON_PATHS.speakerAdd}"/>`)}</button>`
   // Actions the host cannot perform are omitted instead of rendered as
   // buttons that would fail on click.
   // Host-side writes (rename, pi-web's own archive) are rare and destructive,
@@ -973,7 +974,7 @@ function conversationCard(card, graph) {
       ? `<button data-action="rename-thread" data-thread="${card.hostThreadId}" title="重命名会话" aria-label="重命名会话">${RENAME_ICON}</button>`
       : '',
     state.capabilities.archiveSession === true
-      ? `<button data-action="host-archive" data-thread="${card.hostThreadId}" title="在 pi-web 中归档此会话" aria-label="在 pi-web 中归档此会话">${HOST_ARCHIVE_ICON}</button>`
+      ? `<button data-action="host-archive" data-thread="${card.hostThreadId}" title="在 ${state.hostLabels.name} 中归档此会话" aria-label="在 ${state.hostLabels.name} 中归档此会话">${HOST_ARCHIVE_ICON}</button>`
       : '',
   ].join('')
   return `<article class="thread-card ${selected}${running ? ' is-streaming' : ''}" data-card-id="${escapeHtml(card.id)}" data-position-key="${escapeHtml(card.positionKey)}" data-thread="${card.hostThreadId}" style="left:${card.position.x}px;top:${card.position.y}px;--thread-color:${threadColor(card.hostThreadId)}">
@@ -983,7 +984,7 @@ function conversationCard(card, graph) {
     <div class="thread-card-head"><span class="topic-dot"></span><button class="thread-title" data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话：${escapeHtml(card.question)}">${escapeHtml(card.question)}</button></div>
     <div class="thread-meta"><span>${source}</span><span>第 ${card.turnIndex + 1} 轮</span>${card.error === null ? '' : '<span class="card-error-status">失败</span>'}${card.processCount > 0 ? `<span class="card-process-count">工具 ${card.processCount}</span>` : ''}</div>
     <div class="thread-answer">${card.answer === null ? (card.error === null ? '<p class="thread-answer-empty">等待助手回复</p>' : '') : card.answer.pending && card.answer.text === '' ? '<p class="thread-answer-pending">正在回复</p>' : `${renderMarkdown(card.answer.text)}${card.answer.pending ? '<p class="thread-answer-pending">正在回复</p>' : ''}`}${card.error === null ? '' : `<p class="thread-answer-error" title="${escapeHtml(card.error.text)}">本轮失败：${escapeHtml(card.error.text)}</p>`}</div>
-    <footer><button data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话" aria-label="查看完整会话">${ICON('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>')}详情</button><button data-action="open-host" data-thread="${card.hostThreadId}" data-seq="${typeof card.sourceEntryId === 'string' && card.sourceEntryId !== '' ? card.sourceEntryId : ''}" title="在 pi-web 中打开" aria-label="在 pi-web 中打开">${ICON(`<path d="${ICON_PATHS.external}"/><path d="M9.5 3.5h3v3M12.2 3.8 7.5 8.5"/>`)}pi-web</button>${hostActions}<button data-action="archive-thread" data-thread="${card.hostThreadId}" title="从画布移除（原会话保留）" aria-label="从画布归档">${ICON(`<path d="${ICON_PATHS.arch}"/><path d="M4 5 5 2.8a.7.7 0 0 1 .6-.4h4.8a.7.7 0 0 1 .6.4L12 5M6 9.5h4"/>`)}归档</button></footer>
+    <footer><button data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话" aria-label="查看完整会话">${ICON('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>')}详情</button><button data-action="open-host" data-thread="${card.hostThreadId}" data-seq="${typeof card.sourceEntryId === 'string' && card.sourceEntryId !== '' ? card.sourceEntryId : ''}" title="${state.hostLabels.openIn}" aria-label="${state.hostLabels.openIn}">${ICON(`<path d="${ICON_PATHS.external}"/><path d="M9.5 3.5h3v3M12.2 3.8 7.5 8.5"/>`)}${state.hostLabels.openInShort}</button>${hostActions}<button data-action="archive-thread" data-thread="${card.hostThreadId}" title="从画布移除（原会话保留）" aria-label="从画布归档">${ICON(`<path d="${ICON_PATHS.arch}"/><path d="M4 5 5 2.8a.7.7 0 0 1 .6-.4h4.8a.7.7 0 0 1 .6.4L12 5M6 9.5h4"/>`)}归档</button></footer>
   </article>`
 }
 
@@ -1135,7 +1136,7 @@ function btwWidget(thread, parentCard, index) {
       <span class="btw-widget-turns">${turns === 0 ? '待提问' : `${turns} 问`}</span>
       ${usage === null ? '' : `<span class="btw-widget-usage">${Math.round(usage.percent)}%</span>`}
     </button>
-    ${state.capabilities.archiveSession === true ? `<button class="btw-widget-remove" data-action="archive-thread" data-thread="${escapeHtml(thread.id)}" title="从画布移除这个侧问（pi-web 归档视图仍可查看）" aria-label="移除侧问">${closeIcon()}</button>` : ''}
+    ${state.capabilities.archiveSession === true ? `<button class="btw-widget-remove" data-action="archive-thread" data-thread="${escapeHtml(thread.id)}" title="从画布移除这个侧问（${state.hostLabels.name} 归档视图仍可查看）" aria-label="移除侧问">${closeIcon()}</button>` : ''}
   </article>`
 }
 
@@ -1264,7 +1265,7 @@ function renderCanvas() {
   const threads = state.workspace?.threads ?? []
   if (threads.length === 0 && state.draft?.kind !== 'new') {
     clearCanvasCards()
-    return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.sendMessage === true ? '新建一个会话，在画布上输入第一条消息。' : '在 pi-web 中开始一个会话后，它会作为一张卡片出现在这里。'}</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
+    return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.sendMessage === true ? '新建一个会话，在画布上输入第一条消息。' : state.hostLabels.startHint}</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
   }
   // Cards are built from the VISIBLE threads only: a hidden (or aged-out)
   // session must not occupy a lane, a connector or a card slot. The sidebar
@@ -1376,11 +1377,11 @@ function renderThread() {
   // A btw thread reports what it may do: the tool set pi-web pinned on it,
   // which is what makes a side question materially different from a plain fork.
   const tools = isBtw && Array.isArray(thread.tools)
-    ? `<span class="detail-tools" title="pi-web 为这个会话固定的工具集">只读工具 ${thread.tools.length} 个</span>`
+    ? `<span class="detail-tools" title="${state.hostLabels.toolsPinnedBy}">只读工具 ${thread.tools.length} 个</span>`
     : ''
   const usage = contextUsageFor(thread.id)
   const usageLabel = usage === null ? '' : `<span class="detail-usage" title="上下文占用">${usage.percent.toFixed(1)}% · ${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}</span>`
-  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${isBtw ? ' detail-badge-btw' : ''}">${badge}</span>${tools}${usageLabel}${thread.sessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.sessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1><p class="detail-eyebrow">${messages.length} 条记录${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="在 pi-web 中打开此会话">在 pi-web 中打开</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${messages.map(message => threadMessage(thread, message)).join('') || '<div class="note-empty">等待这条会话的第一条消息。</div>'}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
+  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${isBtw ? ' detail-badge-btw' : ''}">${badge}</span>${tools}${usageLabel}${thread.sessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.sessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1><p class="detail-eyebrow">${messages.length} 条记录${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="${state.hostLabels.openIn}此会话">${state.hostLabels.openIn}</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${messages.map(message => threadMessage(thread, message)).join('') || '<div class="note-empty">等待这条会话的第一条消息。</div>'}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
 }
 
 function render() {
@@ -1996,9 +1997,10 @@ app.addEventListener('submit', event => {
   void sendMessage(thread, text).catch(setError)
 })
 
-// pi-web is the host, so the canvas is a standalone page rather than an
-// iframe. Two host signals still arrive over postMessage from the injected
-// page bridge: the current pi-web session, and live streaming replies.
+// The canvas runs inside the host's page as an iframe (both hosts do this: the
+// pi-web proxy injects the switch bar, and the DSH client plugin mounts the
+// same bar). Two host signals arrive over postMessage from that parent: which
+// session the host is showing, and live streaming replies.
 window.addEventListener('message', event => {
   if (event.origin !== window.location.origin || event.data?.source !== 'synapse-host') return
   const data = event.data
@@ -2034,10 +2036,11 @@ window.addEventListener('message', event => {
 })
 
 post('synapse:map-ready')
-// The host declares what it can do; the canvas hides actions it cannot perform
-// rather than showing buttons that would fail.
+// The host declares what it can do, and how it names itself; the canvas hides
+// actions it cannot perform rather than showing buttons that would fail.
 api('/synapse/api/status').then(status => {
   if (status?.capabilities !== undefined) state.capabilities = { ...state.capabilities, ...status.capabilities }
+  if (typeof status?.adapter === 'string') state.hostLabels = hostLabels(status.adapter)
   if (Array.isArray(status?.readOnlyTools) && status.readOnlyTools.length > 0) state.readOnlyTools = status.readOnlyTools.filter(name => typeof name === 'string')
   render()
 }).catch(() => {})

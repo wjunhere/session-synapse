@@ -34,6 +34,15 @@ import { capabilities } from './contract.js'
 const DEFAULT_DEBOUNCE_MS = 200
 
 /**
+ * How often to re-list the corpus for sessions another process created or wrote.
+ *
+ * Matches the engine's own reconcile interval: both are "the host's list is the
+ * authority" passes, and the listing is documented as cheap (headers plus
+ * projection-cache rows, never a per-session stat or a cold body read).
+ */
+const DEFAULT_SCAN_INTERVAL_MS = 5_000
+
+/**
  * @param {object} options
  * @param {any} options.sessionController  `ctx.sessionController` (list/inspect)
  * @param {any} options.sessionQuery       `ctx.sessionQuery` (observeSession)
@@ -42,13 +51,14 @@ const DEFAULT_DEBOUNCE_MS = 200
  *   adapter stays a plain object with the same shape as the pi one.
  * @param {string} [options.dshHome]          explicit harness home (else $DSH_HOME, else ~/.dsh)
  * @param {number} [options.debounceMs]
+ * @param {number} [options.scanIntervalMs]  re-list interval for other processes' sessions
  * @param {boolean} [options.includeSubagents]
  *   Subagent children are the harness's internal delegation sessions: DSH's own
  *   navigation filters them out of the session list, and the canvas groups by
  *   cwd, so showing them would fill the map with internal chatter.
  * @param {object} [options.capabilities]     canvas-side capability overrides
  */
-export function createDshAdapter({ sessionController, sessionQuery, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, includeSubagents = false, capabilities: overrides = {} }) {
+export function createDshAdapter({ sessionController, sessionQuery, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
   if (typeof on !== 'function') throw new Error('createDshAdapter: on 必须是 cordis 的 ctx.on')
 
   async function listSessions() {
@@ -96,6 +106,10 @@ export function createDshAdapter({ sessionController, sessionQuery, on, dshHome 
     /** Trailing per-session timers, so a burst of events costs one re-read. */
     const timers = new Map()
     const latest = new Map()
+    /** Last activity timestamp seen per session, for the out-of-process scan. */
+    const seen = new Map()
+    let seeded = false
+
     const schedule = session => {
       if (session === null || typeof session?.id !== 'string') return
       if (includeSubagents !== true && session.header?.origin === 'subagent') return
@@ -113,14 +127,55 @@ export function createDshAdapter({ sessionController, sessionQuery, on, dshHome 
         }
       }, debounceMs))
     }
+
+    /**
+     * Re-list the corpus on an interval.
+     *
+     * A session created or appended by ANOTHER process — `dsh headless`, a
+     * second harness — is invisible to this process's own `session/event`
+     * stream, and DSH publishes no watcher for it (the persistence layer has no
+     * change events, and `chokidar` is nowhere in the session stack). The pi
+     * adapter needs the same fallback for the same reason: the canvas is not
+     * the only writer of the thing it reads. Only rows whose activity timestamp
+     * MOVED are re-projected, so a quiet corpus costs one listing per interval
+     * and nothing else.
+     */
+    const scan = async () => {
+      let items
+      try {
+        ({ items } = await sessionController.list({}, new AbortController().signal))
+      } catch (error) {
+        process.stderr.write(`synapse: 重新列出会话失败: ${error?.message ?? error}\n`)
+        return
+      }
+      for (const item of items) {
+        const previous = seen.get(item.sessionId)
+        seen.set(item.sessionId, item.updatedAt)
+        // The first pass only records what is there: the engine has already
+        // replayed every session before it subscribed.
+        if (!seeded || previous === item.updatedAt) continue
+        if (includeSubagents !== true && item.origin === 'subagent') continue
+        try {
+          onChange(hostSessionOfSummary(item))
+        } catch (error) {
+          process.stderr.write(`synapse: 投影会话 ${item.sessionId} 失败: ${error?.message ?? error}\n`)
+        }
+      }
+      seeded = true
+    }
+
     const disposers = [
       on('session/created', session => { schedule(session) }),
       on('session/event', session => { schedule(session) }),
     ]
+    void scan()
+    const timer = setInterval(() => { void scan() }, scanIntervalMs)
     return () => {
-      for (const timer of timers.values()) clearTimeout(timer)
+      clearInterval(timer)
+      for (const pending of timers.values()) clearTimeout(pending)
       timers.clear()
       latest.clear()
+      seen.clear()
       for (const dispose of disposers) dispose()
     }
   }
@@ -134,7 +189,10 @@ export function createDshAdapter({ sessionController, sessionQuery, on, dshHome 
     // What the CANVAS may do against this host. The writes are browser actions
     // (the client half calls the host's own session API), so they are declared
     // here rather than inferred from local methods — see the adapter contract.
-    capabilities: () => capabilities(overrides),
+    //
+    // `openSession` is live: the client half handles `synapse:open-session` by
+    // asking the workspace UI to show that session's conversation.
+    capabilities: () => capabilities({ openSession: true, ...overrides }),
   }
 }
 
@@ -161,5 +219,26 @@ function hostSessionOf(session) {
     parentSessionFile: typeof header.parentSession === 'string' ? header.parentSession : null,
     running: true,
     blank: false,
+  }
+}
+
+/**
+ * The `HostSession` for one listing row.
+ *
+ * Used by the out-of-process scan, where there is no live Session object to read
+ * a header from — the row is the whole evidence, which is also why it carries
+ * the title and blank state (they come free from the list's projections).
+ */
+function hostSessionOfSummary(item) {
+  return {
+    id: item.sessionId,
+    cwd: typeof item.cwd === 'string' && item.cwd.trim() !== '' ? item.cwd : null,
+    title: titleOf(item),
+    filePath: item.sessionId,
+    parentSessionFile: typeof item.parentSessionId === 'string' ? item.parentSessionId : null,
+    running: item.running === true,
+    blank: item.blank === true,
+    modified: new Date(item.updatedAt).toISOString(),
+    mtimeMs: item.updatedAt,
   }
 }

@@ -64,7 +64,17 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 `$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh web`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
 
-## 5. 验证
+## 5. 画布侧的宿主差异
+
+| 项 | pi-web | DSH |
+|---|---|---|
+| 按钮/文案 | `src/canvas/host-labels.js` 的 `pi-web` 行 | 同文件的 `dsh` 行（由 `/synapse/api/status` 的 `adapter` 选行；未拿到之前显示中性文案） |
+| 打开会话 | `?session=` 整页导航（父页面做） | `ctx.uiWorkspace.openSession(id)`（client 半区处理 `synapse:open-session`） |
+| 运行中/流式 | 父页面订阅 pi-web 的 SSE | client 半区保留 running 会话的引用，读它 event window 里的 `assistant/live-chunk`（`text-delta` 拼接） |
+| 主题 | `documentElement.dataset.theme` / `dark` class | `body[data-ds-dark-theme]`（client 半区转成 `synapse:theme`） |
+| 写操作（改名/归档/发消息/分支） | 浏览器直接调 pi-web 的 `/api/*` | 未实现（D4：走 client 半区的 `ctx.conversation` / `ctx.uiWorkspace`） |
+
+## 6. 验证
 
 隔离实例（不碰真实会话）：
 
@@ -84,9 +94,19 @@ curl -s 127.0.0.1:30144/synapse/ | head        # → 画布 HTML
 浏览器侧（playwright，同 pi-web 套件那套）：带 `?token=` 打开首页 → 断言 `.synapse-switch button` 有 2 个、`.synapse-overlay iframe` 的 url 以 `/synapse/` 结尾、iframe 里 `#app` 有内容、`pageerror`/`console error` 为空。
 **新 home 首次启动会有引导弹窗**（「预览版说明」/「添加一个 API Key」），它的 mask 会拦住指针事件：脚本里用 `page.evaluate(() => el.click())` 发 DOM click，或先把弹窗点掉。
 
+流式要**在同一个进程里跑一个轮次**才看得到（在 DSH 界面里发一条 prompt），因为 `running` 与实时 chunk 都是进程内状态：
+
+```js
+const composer = page.locator('[contenteditable=true]').first()   // DSH 的输入框不是 textarea
+await composer.click(); await composer.type('写一篇 400 字短文…'); await page.keyboard.press('Enter')
+// 切到画布后读 iframe 里的 window.__synapse.state.liveReplies：running=true + text 长度增长
+```
+
+反过来说，另一个进程（`dsh headless`、第二个 harness）写的会话，本进程只能在轮询里发现（坑 52），且**不会**有流式状态。
+
 desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片能跳会话。host realm 可调试：CDP `ws://127.0.0.1:9230/devtools/page/<id>`（target 是 `dsh://host`）。
 
-## 6. 坑（编号接仓库全局序列）
+## 7. 坑（编号接仓库全局序列）
 
 44. **桌面不是另一套接口。** 判断「某能力 desktop 有没有」时先看 webServer 那条转发规则（§1），别按 README 的 profile 声明下结论：desktop 上 `webServer`、`/plugins/*`、iframe 相对 URL 全都在。
 45. **会话文件是多帧 zstd。** `zlib.zstdDecompressSync` 只解**第一帧**（实测 766 KB 的文件只拿到 header 一行）——append-only 日志每段一个 frame，必须逐帧解（DSH 自己用 `NodePrivateZstdFrameDecoder`）。在 host 里读冷会话一律走 `ctx.sessionQuery`，自己解文件只在离线场景用。
@@ -95,3 +115,5 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 48. **插件必须在 profile 里用「包的裸名」挂载。** 两处硬要求叠在一起：宿主 loader 按裸名解析模块，而 client 模块图的 `exactPackageSpecifier()` 会拒掉任何带 `/` 的 specifier（`session-synapse/dsh` → 客户端 bundle 永不出现，`/plugins/*` 返回 404，页面上只有宿主 UI 而没有切换条）。所以包的**主入口就得是插件**（与 dsh-synapse / dsh-skill-mcp-panel 同形）：`src/index.js` 在原有库导出之外再 re-export 插件的 `name`/`inject`/`apply`。
 49. **client bundle 的注册 id 是「包名」，不是 patch 里的 entry id。** 客户端模块图的行 id 取自解析到的 package name（`record.entry.id = packageName`），所以 `__ModuleLoader__.load({ id })` 要写 `session-synapse`；写 patch 的 `synapse` 会得到 “bundle loaded without registering …”。
 50. **`/plugins/<pkg>/client.js` 不是稳定 URL。** 启动图用 combo URL（`/plugins/??a/client.js,b/client.js&rev=…`），直连单资源路径会 404 —— 404 不能当成「客户端半区没加载」，要看首页 HTML 里的 `__DSH_BOOT__`。
+51. **在 `ctx.sessions.list` 的订阅里 retain 会递归。** `retain()`/`release()` 会把引用计数发布到同一张列表快照里（行上的 `retainedBy`），于是在订阅者里调用它就又进一次订阅者 —— 实测 `RangeError: Maximum call stack size exceeded`，由 client store 的 subscriber 抛出，客户端 UI 停在半更新状态。加一个「已在同步中就直接返回」的门就能断环（外层那次会跑完同样的活）。
+52. **另一个进程写的会话，本进程看不见。** `session/created` / `session/event` 只覆盖本进程的事件；DSH 的持久化层没有 watcher，也没有变更事件，所以 `dsh headless`（或第二个 harness）新建/追加的会话在我们这里根本不触发通知 —— 实测：headless 跑完一整轮，画布仍是旧数量。适配器必须自己按 5s 重新列一次语料，只对 `updatedAt` 变了的行重新投影（与 pi 适配器需要轮询是同一个原因：画布不是它所读东西的唯一写入者）。

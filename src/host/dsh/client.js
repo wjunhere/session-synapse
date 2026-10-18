@@ -121,6 +121,89 @@ loader.load({
       const themeObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(postTheme)
       themeObserver?.observe(document.body ?? document.documentElement, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
 
+      // ---------- live replies ----------
+      // Two things the canvas needs while a turn runs: that the session IS
+      // running (authoritative, straight from the host's session list) and the
+      // assistant text as it streams. The text lives in the session's own event
+      // window, where in-flight chunks arrive as transient `assistant/live-chunk`
+      // rows; reading them requires holding a reference, so only RUNNING
+      // sessions are retained.
+      const SESSION_SOURCE = 'synapse'
+      const live = new Map()
+      let runningIds = new Set()
+
+      /** Concatenated text deltas of one window, in block order. */
+      const liveText = window => {
+        const parts = []
+        for (const entry of window?.entries ?? []) {
+          if (entry.type !== 'transient') continue
+          const chunk = entry.event?.data?.chunk
+          if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') parts.push({ index: chunk.index ?? 0, text: chunk.text })
+        }
+        return parts.sort((left, right) => left.index - right.index).map(part => part.text).join('')
+      }
+
+      const publishLive = id => {
+        const record = live.get(id)
+        send('synapse:live-reply', { sessionId: id, running: true, text: record?.source === undefined ? '' : liveText(record.source.getSnapshot()) })
+      }
+
+      const detachLive = (id, record) => {
+        record.unsubscribe?.()
+        record.reference.release()
+        live.delete(id)
+      }
+
+      /**
+       * Attach/release live readers and report running state.
+       *
+       * RE-ENTRANCY: this runs from a `ctx.sessions.list` subscriber, and
+       * `ctx.sessions.retain()`/`release()` publish into that same snapshot —
+       * the retention counts are part of a list row. Without the guard the
+       * first retain re-enters this function from inside itself and recurses
+       * until the stack blows (measured: `RangeError: Maximum call stack size
+       * exceeded` raised from the client store's subscriber, with the whole
+       * client UI left half-updated). Dropping the nested pass is safe: the
+       * outer one is still running and finishes the same work.
+       */
+      let syncingLive = false
+      const syncLive = () => {
+        if (syncingLive) return
+        syncingLive = true
+        try {
+          const snapshot = ctx.sessions.list.getSnapshot()
+          const next = new Set(snapshot.ids.filter(id => snapshot.byId[id]?.running === true))
+          for (const id of next) {
+            if (live.has(id)) continue
+            try {
+              const reference = ctx.sessions.retain(id, { source: SESSION_SOURCE })
+              const record = { reference, source: undefined, unsubscribe: undefined }
+              live.set(id, record)
+              void reference.ready.then(() => {
+                // The reference may have been released while the open was in flight.
+                if (live.get(id) !== record) return
+                record.source = reference.binding.eventSource
+                record.unsubscribe = record.source.subscribe(() => publishLive(id))
+                publishLive(id)
+              }, () => {})
+            } catch {
+              // A session that cannot be retained still reports its running state.
+            }
+          }
+          for (const [id, record] of [...live]) {
+            if (next.has(id)) continue
+            detachLive(id, record)
+            send('synapse:live-reply', { sessionId: id, running: false, text: '' })
+          }
+          // First report for a session that just started running; the text
+          // arrives when the retained window opens.
+          for (const id of next) if (!runningIds.has(id)) publishLive(id)
+          runningIds = next
+        } finally {
+          syncingLive = false
+        }
+      }
+
       // ---------- messages from the canvas ----------
       const onMessage = event => {
         if (event.origin !== location.origin) return
@@ -129,6 +212,10 @@ loader.load({
         if (data.type === 'synapse:map-ready') {
           postTheme()
           postCurrent()
+          // A freshly loaded canvas missed every earlier transition, so the
+          // running set is re-reported in full rather than diffed.
+          runningIds = new Set()
+          syncLive()
           return
         }
         if (data.type === 'synapse:open-session' && typeof data.sessionId === 'string') {
@@ -149,9 +236,7 @@ loader.load({
 
       const unsubscribeSessions = ctx.sessions.list.subscribe(() => {
         postCurrent()
-        // A first report for a newly attached session happens here, after the
-        // list itself settled.
-        if (!overlay.hidden) postCurrent()
+        syncLive()
       })
 
       ctx.effect(() => () => {
@@ -160,12 +245,14 @@ loader.load({
         window.removeEventListener('message', onMessage)
         themeObserver?.disconnect()
         unsubscribeSessions()
+        for (const [id, record] of [...live]) detachLive(id, record)
         host.remove()
         style.remove()
       }, 'synapse: view switch')
 
       postTheme()
       postCurrent()
+      syncLive()
     }
     return module.exports
   },
