@@ -276,6 +276,9 @@ loader.load({
         if (data.type === 'synapse:map-ready') {
           postTheme()
           postCurrent()
+          // The canvas brings only the collapsed rail: this host already shows
+          // its own session list beside it (see `synapse:chrome` in app.js).
+          send('synapse:chrome', { sidebar: 'collapsed' })
           // A freshly loaded canvas missed every earlier transition, so the
           // running set is re-reported in full rather than diffed.
           runningIds = new Set()

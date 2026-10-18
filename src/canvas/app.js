@@ -1990,13 +1990,28 @@ app.addEventListener('submit', event => {
 
 // The canvas runs inside the host's page as an iframe (both hosts do this: the
 // pi-web proxy injects the switch bar, and the DSH client plugin mounts the
-// same bar). Two host signals arrive over postMessage from that parent: which
-// session the host is showing, and live streaming replies.
+// same bar). Three host signals arrive over postMessage from that parent: which
+// session the host is showing, how much chrome the canvas should bring, and live
+// streaming replies.
 window.addEventListener('message', event => {
   if (event.origin !== window.location.origin || event.data?.source !== 'synapse-host') return
   const data = event.data
   if (data.type === 'synapse:theme') {
     document.documentElement.dataset.theme = data.dark === true ? 'dark' : 'light'
+    return
+  }
+  // How much chrome the canvas should bring itself. A host that already shows
+  // its own session list beside the canvas (DSH) asks for the collapsed rail:
+  // two session lists side by side is the same information twice, and the rail
+  // keeps the canvas's own controls — the visibility toggles above all — one
+  // click away instead of gone. pi-web sends nothing, which leaves the sidebar
+  // as it was.
+  if (data.type === 'synapse:chrome') {
+    const collapsed = data.sidebar === 'collapsed'
+    if (collapsed !== state.sidebarCollapsed) {
+      state.sidebarCollapsed = collapsed
+      if (canReplaceView()) render()
+    }
     return
   }
   if (data.type === 'synapse:current-session') {

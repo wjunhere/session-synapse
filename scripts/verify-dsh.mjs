@@ -200,7 +200,21 @@ try {
   const mapPlacement = await placement()
   check('地图视图下切换条仍可见且没被画布盖住', mapPlacement.visible && mapPlacement.hitIsBar, JSON.stringify(mapPlacement))
 
-  // C. 宿主文案：画布不该在 DSH 里自称 pi-web
+  // C. 画布自己带多少 chrome：这个宿主已经有自己的会话列表，画布只留轨道
+  const chrome = await frame().evaluate(() => {
+    const shell = document.querySelector('.synapse-shell')
+    const sidebar = document.querySelector('.sidebar')
+    return {
+      collapsed: shell?.classList.contains('sidebar-collapsed') === true,
+      width: Math.round(sidebar?.getBoundingClientRect().width ?? -1),
+      treeHidden: getComputedStyle(document.querySelector('.thread-tree')).display === 'none',
+      toggleLabel: document.querySelector('.sidebar-toggle')?.getAttribute('aria-label') ?? '',
+    }
+  })
+  check('画布侧栏在 DSH 里默认收起（不重复宿主那份会话列表）', chrome.collapsed && chrome.treeHidden && chrome.width <= 64, JSON.stringify(chrome))
+  check('收起后仍能展开（轨道上有按钮）', chrome.toggleLabel === '展开侧边栏', JSON.stringify(chrome.toggleLabel))
+
+  // D. 宿主文案：画布不该在 DSH 里自称 pi-web
   const hostButton = await frame().evaluate(() => document.querySelector('.thread-card [data-action="open-host"]')?.textContent?.trim() ?? '')
   check('卡片页脚按宿主命名（DSH）', hostButton.includes('DSH'), JSON.stringify(hostButton))
 
