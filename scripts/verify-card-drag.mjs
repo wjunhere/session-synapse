@@ -42,7 +42,9 @@ for (let i = 0; i < 12; i++) {
   if (options.length > 0) break
   await page.waitForTimeout(3000)
 }
-const target = options.find(o => o.trim() === 'pi-synapse') ?? options.find(o => !o.includes('_probe'))
+// 优先本仓库的工作区（会话多、有分支和工具，断言更实）。仓库目录改过名，而老会话的
+// cwd 仍是旧目录名，所以两个名字都认；都没有就退回任意非探测工作区。
+const target = options.find(o => ['session-synapse', 'pi-synapse'].includes(o.trim())) ?? options.find(o => !o.includes('_probe'))
 if (target === undefined) { console.log('FAIL 下拉里没有可用工作区'); await browser.close(); process.exit(1) }
 await frame.locator('select').selectOption({ label: target })
 await page.waitForTimeout(4000)

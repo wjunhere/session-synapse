@@ -76,7 +76,7 @@ node scripts/verify-clean-probes.mjs      # clean-probes 自己：不许碰活�
 `PROBE_CWD` 起 `bin/synapse.js start` → 顺序跑 19 个套件（每个都带 `BASE`/`PROBE_CWD`/`CHROME_PATH`）→
 停服务 → `clean-probes.mjs --data <临时文件>` → 打一张表。每个套件的完整输出写到 `<run>/logs/`，**成功才删
 run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户自己启的比明确报错更糟），也不碰用户真实的
-`workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。仓库已建：`wjunhere/pi-synapse`
+`workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。仓库已建：`wjunhere/session-synapse`
 （私有，main 跟踪 origin/main），首推即跑通（~15s）。
 
 ### 它第一次跑就抓出两个真问题

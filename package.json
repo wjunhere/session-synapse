@@ -1,5 +1,5 @@
 {
-  "name": "@wjunhere/pi-synapse",
+  "name": "session-synapse",
   "version": "0.1.0",
   "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
   "type": "module",
@@ -9,7 +9,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "pi-synapse": "bin/pi-synapse.js"
+    "synapse": "bin/synapse.js"
   },
   "files": [
     "src",
@@ -24,7 +24,7 @@
     "prepare": "npm run build",
     "test": "node --test test/*.test.js",
     "verify": "node scripts/verify-all.mjs",
-    "start": "node bin/pi-synapse.js start"
+    "start": "node bin/synapse.js start"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -45,7 +45,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wjunhere/pi-synapse.git"
+    "url": "git+https://github.com/wjunhere/session-synapse.git"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

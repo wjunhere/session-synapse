@@ -300,13 +300,13 @@ const after = await page.evaluate(async () => {
 check('画布 thread 数增加 1', after === threadsBefore + 1, `${threadsBefore} → ${after}`)
 
 // 截图写到系统临时目录（以前写死在仓库的 _btw/ 下，成了没人清的残渣）
-await page.screenshot({ path: join(tmpdir(), 'pi-synapse-verify-btw.png'), fullPage: false })
+await page.screenshot({ path: join(tmpdir(), 'synapse-verify-btw.png'), fullPage: false })
 
 // btw 完成后回到画布截图（挂件与圆圈同框）
 await page.waitForTimeout(4000)
 await frame.locator('[data-action="show-canvas"]').first().click().catch(() => {})
 await page.waitForTimeout(2500)
-await page.screenshot({ path: join(tmpdir(), 'pi-synapse-verify-btw-canvas.png') })
+await page.screenshot({ path: join(tmpdir(), 'synapse-verify-btw-canvas.png') })
 
 const failed = results.filter(r => !r.ok)
 console.log(`\n合计 ${results.length} 项，通过 ${results.length - failed.length}，失败 ${failed.length}`)

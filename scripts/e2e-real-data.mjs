@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { createPiAdapter, defaultAgentDir } from '../src/adapters/pi.js'
 import { Synapse } from '../src/synapse.js'
 
-const runDir = await mkdtemp(join(tmpdir(), 'pi-synapse-e2e-'))
+const runDir = await mkdtemp(join(tmpdir(), 'synapse-e2e-'))
 
 const adapter = createPiAdapter({ agentDir: defaultAgentDir() })
 const synapse = new Synapse({ adapter, dataFile: join(runDir, 'workspaces.json') })

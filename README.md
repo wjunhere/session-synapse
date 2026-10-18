@@ -1,8 +1,8 @@
-# pi-synapse
+# session-synapse
 
 给 [pi](https://github.com/earendil-works/pi) 的会话地图：把散落在 `~/.pi/agent/sessions/` 里的会话、追问和分支，组织成一张可拖拽、可缩放的画布。
 
-pi-web 让你看清一个会话，pi-synapse 让你看清所有会话之间的关系。
+pi-web 让你看清一个会话，session-synapse 让你看清所有会话之间的关系。
 
 ## 它做什么
 
@@ -21,17 +21,17 @@ pi-web 让你看清一个会话，pi-synapse 让你看清所有会话之间的�
 ## 安装
 
 ```bash
-npm install -g @wjunhere/pi-synapse   # 之后直接 `pi-synapse start`
+npm install -g session-synapse   # 之后直接 `synapse start`
 ```
 
 从源码跑（开发）：
 
 ```bash
-git clone https://github.com/wjunhere/pi-synapse
-cd pi-synapse
+git clone https://github.com/wjunhere/session-synapse
+cd session-synapse
 npm install          # 无运行时依赖，只为跑测试
 npm link             # 可选：把它装成一个命令
-node bin/pi-synapse.js start
+node bin/synapse.js start
 ```
 
 启动后打开 `http://127.0.0.1:30142/`。若 pi-web 已在运行，它会被反代到这个端口，顶部中间会出现「对话 / 会话地图」切换条。
@@ -39,7 +39,7 @@ node bin/pi-synapse.js start
 ### 前提
 
 - Node.js ≥ 22.19.0
-- **pi-web 必须已在运行**（默认 `127.0.0.1:30100`）。未启动会看到上游连接错误；用 `--spawn` 可让 pi-synapse 顺带把它拉起来。
+- **pi-web 必须已在运行**（默认 `127.0.0.1:30100`）。未启动会看到上游连接错误；用 `--spawn` 可让 synapse 顺带把它拉起来。
 
 ## 选项
 
@@ -54,7 +54,7 @@ node bin/pi-synapse.js start
 | `--spawn` | 顺带启动 pi-web | 关闭 |
 | `--force` | 接管另一实例持有的锁（仅当它已挂起时用） | 关闭 |
 
-环境变量：`PI_CODING_AGENT_DIR`、`PI_SYNAPSE_PORT`、`PI_SYNAPSE_UPSTREAM`。
+环境变量：`PI_CODING_AGENT_DIR`、`SYNAPSE_PORT`、`SYNAPSE_UPSTREAM`。
 
 ## 为什么需要一个代理
 
@@ -109,7 +109,7 @@ pi-web 会拒绝任何跨源的 `/api/*` 请求（`Origin` 必须等于请求自
 同一份 `workspaces.json` 只能有一个写入者，否则两个实例的整文件重写会互相覆盖。这一点由**实例锁自动阻止**，再启动一个会直接退出：
 
 ```
-pi-synapse: 已有实例正在使用这份画布数据（PID 27948，端口 30142，启动于 2026-10-12T14:26:18.728Z）
+synapse: 已有实例正在使用这份画布数据（PID 27948，端口 30142，启动于 2026-10-12T14:26:18.728Z）
 ```
 
 锁键在**数据文件**上（`workspaces.json.instance`），不是端口，也不是进程：

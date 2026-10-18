@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { WorkspaceStore, normalizeState } from '../src/store/workspace-store.js'
 
 async function withStore(run) {
-  const dir = await mkdtemp(join(tmpdir(), 'pi-synapse-store-'))
+  const dir = await mkdtemp(join(tmpdir(), 'synapse-store-'))
   try {
     await run(join(dir, 'workspaces.json'))
   } finally {
@@ -235,7 +235,7 @@ test('a v1 store migrates its events into a thread', () => {
 })
 
 test('an unreadable data file fails loudly', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'pi-synapse-store-'))
+  const dir = await mkdtemp(join(tmpdir(), 'synapse-store-'))
   try {
     const dataFile = join(dir, 'workspaces.json')
     await writeFile(dataFile, 'not json', 'utf8')

@@ -170,7 +170,7 @@ console.log(latestOk ? 'PASS 无锚点进入详情落在最新消息' : `FAIL �
 console.log(btwOk === null ? 'SKIP btw 挂件（当前无侧问）' : btwPassed ? 'PASS btw 挂件进入详情落在最新消息' : 'FAIL btw 挂件进入详情位置不对')
 console.log('页面错误:', errors.length ? errors.slice(0, 3) : '无')
 // 截图写到系统临时目录：它是调试用的现场，不应在仓库根目录里积灰（曾经 `_nav.png` 一直躺着）。
-const shot = join(tmpdir(), 'pi-synapse-verify-navigation.png')
+const shot = join(tmpdir(), 'synapse-verify-navigation.png')
 await page.screenshot({ path: shot, fullPage: false })
 console.log('截图:', shot)
 await browser.close()

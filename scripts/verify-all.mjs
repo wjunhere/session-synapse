@@ -2,7 +2,7 @@
 /**
  * The whole regression suite in one command.
  *
- * It runs `bin/pi-synapse.js start` against an ISOLATED data file and a
+ * It runs `bin/synapse.js start` against an ISOLATED data file and a
  * throwaway probe cwd, runs every suite with `BASE`/`PROBE_CWD` pointing at
  * them, then cleans up and prints a table. Reasons this exists:
  *
@@ -154,7 +154,7 @@ const writeLog = async (name, output) => {
 let service = null
 async function startService() {
   const log = []
-  const child = spawn(process.execPath, [join(ROOT, 'bin/pi-synapse.js'), 'start', '--port', String(PORT), '--upstream', String(UPSTREAM), '--data', dataFile], {
+  const child = spawn(process.execPath, [join(ROOT, 'bin/synapse.js'), 'start', '--port', String(PORT), '--upstream', String(UPSTREAM), '--data', dataFile], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   })

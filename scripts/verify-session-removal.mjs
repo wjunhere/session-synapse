@@ -69,7 +69,7 @@ function sessionLines(id) {
  * disabled so only the reconcile timer can see a directory change.
  */
 async function withSynapse(run) {
-  const root = await mkdtemp(join(tmpdir(), 'pi-synapse-verify-removal-'))
+  const root = await mkdtemp(join(tmpdir(), 'synapse-verify-removal-'))
   const sessionsDir = join(root, 'sessions')
   const dir = join(sessionsDir, PROBE_DIR_NAME)
   await mkdir(dir, { recursive: true })

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * pi-synapse CLI.
+ * synapse CLI.
  *
  * `start` runs the proxy that puts the canvas and pi-web on one origin, then
  * projects every pi session into the canvas. pi-web itself is expected to be
@@ -15,10 +15,10 @@ import { createGuard } from '../src/server/guard.js'
 import { startServer } from '../src/server/proxy.js'
 import { acquireInstanceLock, InstanceLockError } from '../src/store/instance-lock.js'
 
-const HELP = `pi-synapse — pi 的会话地图
+const HELP = `synapse — pi 的会话地图
 
 用法:
-  pi-synapse start [选项]
+  synapse start [选项]
 
 选项:
   -p, --port <port>         canvas 代理端口 (默认 30142)
@@ -37,8 +37,8 @@ const HELP = `pi-synapse — pi 的会话地图
 
 环境变量:
   PI_CODING_AGENT_DIR       pi agent 数据目录 (默认 ~/.pi/agent)
-  PI_SYNAPSE_PORT           同 --port
-  PI_SYNAPSE_UPSTREAM       同 --upstream
+  SYNAPSE_PORT              同 --port
+  SYNAPSE_UPSTREAM          同 --upstream
 `
 
 async function main() {
@@ -68,8 +68,8 @@ async function main() {
     return
   }
 
-  const port = Number(values.port ?? process.env.PI_SYNAPSE_PORT ?? 30142)
-  const upstreamPort = Number(values.upstream ?? process.env.PI_SYNAPSE_UPSTREAM ?? 30100)
+  const port = Number(values.port ?? process.env.SYNAPSE_PORT ?? 30142)
+  const upstreamPort = Number(values.upstream ?? process.env.SYNAPSE_UPSTREAM ?? 30100)
   const host = values.hostname ?? '127.0.0.1'
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`无效端口: ${port}`)
   if (!Number.isInteger(upstreamPort) || upstreamPort < 1 || upstreamPort > 65535) throw new Error(`无效上游端口: ${upstreamPort}`)
@@ -92,15 +92,15 @@ async function main() {
       const held = error.holder
       const since = typeof held.startedAt === 'string' ? `，启动于 ${held.startedAt}` : ''
       const where = Number.isInteger(held.port) && held.port !== null ? `，端口 ${held.port}` : ''
-      process.stderr.write(`pi-synapse: 已有实例正在使用这份画布数据（PID ${held.pid}${where}${since}）\n`)
-      process.stderr.write(`pi-synapse: 数据文件 ${dataFile}\n`)
-      process.stderr.write('pi-synapse: 同一份数据只能有一个写入者。若要换端口，请同时改 --data；若那个进程已挂起，用 --force\n')
+      process.stderr.write(`synapse: 已有实例正在使用这份画布数据（PID ${held.pid}${where}${since}）\n`)
+      process.stderr.write(`synapse: 数据文件 ${dataFile}\n`)
+      process.stderr.write('synapse: 同一份数据只能有一个写入者。若要换端口，请同时改 --data；若那个进程已挂起，用 --force\n')
       process.exitCode = 1
       return
     }
     throw error
   }
-  if (lock.tookOver) process.stdout.write('pi-synapse: 接管了一个遗留的锁（原持有者已退出）\n')
+  if (lock.tookOver) process.stdout.write('synapse: 接管了一个遗留的锁（原持有者已退出）\n')
 
   // The browser performs the writes (it shares pi-web's origin through the
   // proxy), so the capabilities are declared here and the canvas gates its UI
@@ -142,7 +142,7 @@ async function main() {
     },
   })
 
-  process.stdout.write('pi-synapse: 正在读取会话…\n')
+  process.stdout.write('synapse: 正在读取会话…\n')
   try {
     await synapse.start()
   } catch (error) {
@@ -152,19 +152,19 @@ async function main() {
   }
   const sessions = synapse.sessions.size
   const workspaces = await synapse.listWorkspaces()
-  process.stdout.write(`pi-synapse: 已投影 ${sessions} 个会话 / ${workspaces.length} 个工作区\n`)
+  process.stdout.write(`synapse: 已投影 ${sessions} 个会话 / ${workspaces.length} 个工作区\n`)
 
   const address = server.address()
   const shownPort = typeof address === 'object' && address !== null ? address.port : port
-  process.stdout.write(`pi-synapse: 已启动 → http://${host}:${shownPort}/\n`)
-  process.stdout.write(`pi-synapse: 会话地图 → http://${host}:${shownPort}/synapse/\n`)
-  process.stdout.write('pi-synapse: 在 pi-web 页面顶部中间的「对话 / 会话地图」切换条即可打开\n')
+  process.stdout.write(`synapse: 已启动 → http://${host}:${shownPort}/\n`)
+  process.stdout.write(`synapse: 会话地图 → http://${host}:${shownPort}/synapse/\n`)
+  process.stdout.write('synapse: 在 pi-web 页面顶部中间的「对话 / 会话地图」切换条即可打开\n')
 
   let closing = false
   const shutdown = async () => {
     if (closing) return
     closing = true
-    process.stdout.write('\npi-synapse: 正在关闭…\n')
+    process.stdout.write('\nsynapse: 正在关闭…\n')
     synapse.stop()
     await lock.release().catch(() => {})
     server.close(() => process.exit(0))
@@ -179,11 +179,11 @@ function spawnPiWeb(port) {
     stdio: 'inherit',
     shell: process.platform === 'win32',
   })
-  child.on('error', error => process.stderr.write(`pi-synapse: 无法启动 pi-web: ${error.message}\n`))
+  child.on('error', error => process.stderr.write(`synapse: 无法启动 pi-web: ${error.message}\n`))
   process.on('exit', () => child.kill())
 }
 
 main().catch(error => {
-  process.stderr.write(`pi-synapse: ${error?.stack ?? error}\n`)
+  process.stderr.write(`synapse: ${error?.stack ?? error}\n`)
   process.exitCode = 1
 })

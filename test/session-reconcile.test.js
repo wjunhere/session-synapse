@@ -33,7 +33,7 @@ function sessionFile(id, text = 'q') {
 }
 
 async function withSynapse(run, { autoProjection = true } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'pi-synapse-reconcile-'))
+  const root = await mkdtemp(join(tmpdir(), 'synapse-reconcile-'))
   const sessionsDir = join(root, 'sessions')
   const sessionDir = join(sessionsDir, PROBE_DIR)
   await mkdir(sessionDir, { recursive: true })

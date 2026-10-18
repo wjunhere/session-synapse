@@ -28,5 +28,5 @@ const text = (await frame.locator('body').innerText()).replaceAll(/\s+/g, ' ')
 console.log('画布文本:', text.slice(0, 400))
 console.log('错误:', errors.length ? errors.slice(0, 8) : '无')
 // 截图写到系统临时目录：不用为写文件先建目录，也不在仓库里留残渣（这些路径以前写死在 B:/…）
-await page.screenshot({ path: join(tmpdir(), 'pi-synapse-verify-canvas.png') })
+await page.screenshot({ path: join(tmpdir(), 'synapse-verify-canvas.png') })
 await browser.close()

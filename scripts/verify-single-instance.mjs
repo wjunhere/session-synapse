@@ -36,7 +36,7 @@ const check = (name, ok, detail = '') => {
 }
 
 function start(port) {
-  const child = spawn(process.execPath, ['bin/pi-synapse.js', 'start', '--port', String(port), '--data', dataFile, '--no-inject'], { cwd: CWD, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, ['bin/synapse.js', 'start', '--port', String(port), '--data', dataFile, '--no-inject'], { cwd: CWD, stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   child.stdout.on('data', d => { out += d })
   child.stderr.on('data', d => { out += d })
