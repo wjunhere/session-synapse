@@ -275,11 +275,28 @@ export class Synapse {
     return this.store.clearLegacy(sessions ?? [])
   }
 
-  async sendMessage(sessionId, text) {
+  async sendMessage(sessionId, text, images = []) {
     // `requireCapability` checks the METHOD as well as the declared capability,
     // which is what keeps this from calling an adapter that only advertises the
     // capability (pi-web's canvas posts prompts itself; this process cannot).
-    return requireCapability(this.adapter, 'sendMessage')(sessionId, text)
+    return requireCapability(this.adapter, 'sendMessage')(sessionId, text, images)
+  }
+
+  /** A usable session on this cwd, created when there is none. */
+  async createSession(cwd) {
+    return requireCapability(this.adapter, 'createSession')(cwd)
+  }
+
+  async forkSession(sessionId, entryId = undefined) {
+    return requireCapability(this.adapter, 'forkSession')(sessionId, entryId)
+  }
+
+  async renameSession(sessionId, name) {
+    return requireCapability(this.adapter, 'renameSession')(sessionId, name)
+  }
+
+  async archiveSession(sessionId, archived) {
+    return requireCapability(this.adapter, 'archiveSession')(sessionId, archived)
   }
 
   async openSession(sessionId) {

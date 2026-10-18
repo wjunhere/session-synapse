@@ -155,33 +155,51 @@ core 只认这一个接口。adapter 的能力按等级标注，core 对缺失�
 ```ts
 interface SynapseAdapter {
   /** 稳定标识，用于 UI 显示与本地存储命名空间 */
-  readonly id: string                    // 'pi-web' | 'dsh' | ...
+  readonly id: string                    // 'pi' | 'dsh' | ...
 
   /** 元数据文件的默认路径（宿主可覆盖） */
   defaultDataFile(): string
 
-  /** 列出全部会话（含 cwd / 标题 / 父会话 / 文件路径） */
+  /** 列出全部会话（含 cwd / 标题 / 父会话 / 标识） */
   listSessions(): Promise<HostSession[]>
 
-  /** 读一个会话的完整 entry 序列（已按时间/树序排好，供投影消费） */
-  readEntries(sessionId: string): Promise<HostEntry[]>
+  /** 读一个会话的完整 entry 序列（已排好，供投影消费） */
+  readHistory(session: HostSession): Promise<SessionHistory>
 
   /** 订阅实时事件；返回退订函数 */
-  subscribe(onEvent: (event: HostEvent) => void): () => void
+  subscribe(onChange: (session: HostSession) => void): () => void
 
   /** 能力声明：core 据此隐藏不支持的 UI 按钮 */
   capabilities(): {
     sendMessage: boolean
+    createSession: boolean
     forkSession: boolean
     openSession: boolean
+    renameSession: boolean
     archiveSession: boolean
+    btw: boolean          // fork + 固定只读工具 + 归档
+    setTools: boolean
   }
 
+  /**
+   * 画布怎么把写操作送达宿主（缺省 'host'）：
+   *   'host'    —— 浏览器直接调宿主自己的 API（pi-web：要求 Origin 等于 Host）
+   *   'synapse' —— 浏览器调 /synapse/api/host/*，由本进程的 adapter 代做（DSH）
+   */
+  writeTransport?(): 'host' | 'synapse'
+
   // —— 以下按 capabilities() 可选实现 ——
-  sendMessage?(sessionId: string, text: string): Promise<void>
-  forkSession?(sessionId: string, entryId: string): Promise<string>
+  sendMessage?(sessionId: string, text: string, images?: PromptImage[]): Promise<void>
+  createSession?(cwd: string | null): Promise<string>
+  forkSession?(sessionId: string, entryId?: string): Promise<string>
   openSession?(sessionId: string): Promise<void>
+  renameSession?(sessionId: string, name: string): Promise<void>
+  archiveSession?(sessionId: string, archived: boolean): Promise<void>
 }
+
+// 图片按画布持有的形状传（base64，无 data-URL 前缀）；
+// 各宿主对字段的叫法不同（pi-web: mimeType，DSH: mediaType），映射归 adapter。
+interface PromptImage { data: string, mimeType: string }
 
 interface HostSession {
   id: string
@@ -273,11 +291,15 @@ src/
   store/workspace-store.js   画布元数据存储 + 版本迁移（宿主无关）
   store/instance-lock.js     单实例锁（键在数据文件上）
   project/pi.js              pi JSONL → 规范化投影条目
+  project/dsh.js             DSH 事件 → 同一套投影词汇
   project/context-usage.js   上下文占用的估算（复刻 pi 的 getContextUsage）
   models/registry.js         provider/model → contextWindow（读 pi 的模型配置）
-  adapters/contract.js       adapter 契约与能力声明
+  adapters/contract.js       adapter 契约、能力声明与「宿主拒绝了」错误类
   adapters/pi.js             读 pi 会话文件、watch 变化
   adapters/pi-web-actions.js 浏览器侧的 pi-web 写操作（改名/归档/fork/set_tools/btw）
+  adapters/dsh.js            DSH 会话语料 + 进程内写操作（sessionController / workspaceController）
+  host/dsh/index.js          DSH 插件宿主半区（注册路由、拿锁、启停投影）
+  host/dsh/client.js         DSH 插件客户端半区（切换条、主题、流式、打开会话）
   synapse.js                 投影引擎：adapter → store
   server/routes.js           /synapse/api/* 与静态资源
   server/guard.js            Host 白名单、JSON body 解析
@@ -285,7 +307,8 @@ src/
   canvas/app.js              画布 UI 主文件（渲染 / 交互 / 动作，仍在继续往下拆）
   canvas/state.js            画布状态对象 + 写回 localStorage 的几个 helper
   canvas/storage.js          localStorage 读写与取值校验（键、默认值、废弃键清理）
-  canvas/host.js             与宿主的全部对话（Synapse 的 /synapse/api 与 pi-web 的 /api）
+  canvas/host.js             与宿主的全部对话（写操作的两条通道都在这里选）
+  canvas/host-labels.js      宿主名与文案（按钮标题、空状态提示）
   canvas/format.js           文本/时间/token 格式化 + 上下文圆环
   canvas/markdown.js         卡片用的 markdown 子集（含渲染缓存）
   canvas/icons.js            图标集

@@ -17,11 +17,15 @@
  *   - **The host measures its own context.** The token meter's
  *     `contextPressure` projection is what DSH's own transcript shows, so it is
  *     passed through as the card's ring rather than re-derived here.
+ *   - **The writes are service calls, not HTTP.** This process IS the harness,
+ *     so `sessionController.create/rename/fork/prompt` and the workspace
+ *     controller's archive are reachable directly — see `writeTransport()`.
  */
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { projectDshSession } from '../project/dsh.js'
-import { capabilities } from './contract.js'
+import { capabilities, HostRequestError } from './contract.js'
 
 /**
  * How long to coalesce a burst of session events before re-projecting.
@@ -43,9 +47,86 @@ const DEFAULT_DEBOUNCE_MS = 200
 const DEFAULT_SCAN_INTERVAL_MS = 5_000
 
 /**
+ * The image media types the harness's attachment store admits.
+ *
+ * A closed union in `@deepseek-ai/dsh-attachment`; anything else is refused by
+ * the host, so the refusal happens here with the offending type named rather
+ * than as an opaque `session/attachment-invalid` from deep inside admission.
+ */
+const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+/**
+ * The prompt content parts for one canvas message.
+ *
+ * Text last, matching the harness's own composer (attachments, then text).
+ *
+ * @param {string} text
+ * @param {{data: string, mimeType: string}[]} [images]
+ */
+export function promptContent(text, images = []) {
+  const parts = []
+  for (const image of images) {
+    const mediaType = image?.mimeType
+    if (!IMAGE_MEDIA_TYPES.includes(mediaType)) throw new Error(`DSH 不接受这种图片类型：${String(mediaType)}`)
+    if (typeof image.data !== 'string' || image.data === '') throw new Error('图片数据为空')
+    parts.push({ type: 'image', mediaType, data: image.data })
+  }
+  const trimmed = String(text ?? '')
+  if (trimmed.trim() !== '') parts.push({ type: 'text', text: trimmed })
+  if (parts.length === 0) throw new Error('消息不能为空')
+  return parts
+}
+
+/**
+ * The fork boundary for a canvas entry id.
+ *
+ * The canvas speaks projection ids, which for DSH are the event `seq` padded to
+ * eight digits (`dshEntryId`), so this is the exact inverse. `atSeq` is an
+ * INCLUSIVE event seq in the host's own API, which is also what the canvas
+ * means by "branch off this turn": the fork keeps the turn it branches from.
+ *
+ * @param {string} entryId
+ */
+export function forkBoundary(entryId) {
+  if (typeof entryId !== 'string' || !/^\d+$/.test(entryId)) throw new Error(`分支位置不是 DSH 的事件序号：${String(entryId)}`)
+  return Number(entryId)
+}
+
+/**
+ * Run one host call, turning a host REFUSAL into a caller-facing error.
+ *
+ * DSH's Remote failures are discriminated by `code`, never by `instanceof` (the
+ * class is rebuilt across the Gateway, so two copies can meet in one process).
+ * Codes name what was wrong with the REQUEST — `session/not-found`,
+ * `session/fork-unavailable`, `workspace/session-active` — so they reach the
+ * user as a 400 carrying the harness's own diagnostic. `gateway/internal` is
+ * the harness reporting its OWN fault and keeps propagating as a 500.
+ *
+ * @param {string} action  what the caller was trying to do, for the message
+ * @param {() => Promise<any>} run
+ */
+async function hostCall(action, run) {
+  try {
+    return await run()
+  } catch (error) {
+    if (error?.isDSHRemoteError !== true || typeof error.code !== 'string') throw error
+    if (error.code === 'gateway/internal') throw error
+    throw new HostRequestError(`${action}失败：${error.message}`)
+  }
+}
+
+/**
+ * How the canvas reaches this host's writes: our routes, never its own API.
+ *
+ * @type {() => import('./contract.js').WriteTransport}
+ */
+const WRITE_TRANSPORT = () => 'synapse'
+
+/**
  * @param {object} options
- * @param {any} options.sessionController  `ctx.sessionController` (list/inspect)
+ * @param {any} options.sessionController  `ctx.sessionController` (list/inspect/create/rename/fork/prompt)
  * @param {any} options.sessionQuery       `ctx.sessionQuery` (observeSession)
+ * @param {any} [options.workspaceController] `ctx.workspaceController` (archive/unarchive)
  * @param {(event: string, listener: (...args: any[]) => void) => () => void} options.on
  *   cordis's `ctx.on`, bound. Passed in rather than reaching for a context so the
  *   adapter stays a plain object with the same shape as the pi one.
@@ -58,7 +139,7 @@ const DEFAULT_SCAN_INTERVAL_MS = 5_000
  *   cwd, so showing them would fill the map with internal chatter.
  * @param {object} [options.capabilities]     canvas-side capability overrides
  */
-export function createDshAdapter({ sessionController, sessionQuery, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
+export function createDshAdapter({ sessionController, sessionQuery, workspaceController = undefined, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
   if (typeof on !== 'function') throw new Error('createDshAdapter: on 必须是 cordis 的 ctx.on')
 
   async function listSessions() {
@@ -180,19 +261,98 @@ export function createDshAdapter({ sessionController, sessionQuery, on, dshHome 
     }
   }
 
+  /**
+   * Send one prompt into a session.
+   *
+   * `mode: 'queue'` is what the harness's own composer sends when a turn is
+   * already running (it appends after the current turn); `steer` would interrupt
+   * it, which is not what a canvas message means.
+   *
+   * The `requestId` is not optional here even though the client-side wrapper
+   * defaults it: the host records it on the accepted user message as `rpcId`
+   * and deduplicates on it, so a retried request must reuse the identity the
+   * caller minted rather than a fresh one.
+   */
+  async function sendMessage(sessionId, text, images = []) {
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('该节点没有关联的会话')
+    const content = promptContent(text, images)
+    await hostCall('发送消息', () => sessionController.prompt({
+      requestId: randomUUID(),
+      sessionId,
+      mode: 'queue',
+      content,
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }, new AbortController().signal))
+  }
+
+  /** A usable session on this cwd, created when there is none. */
+  async function createSession(cwd) {
+    const request = typeof cwd === 'string' && cwd.trim() !== '' ? { cwd } : {}
+    const { sessionId } = await hostCall('新建会话', () => sessionController.create(request))
+    return sessionId
+  }
+
+  /** Fork at an exact event seq (inclusive), or at the latest completed turn. */
+  async function forkSession(sessionId, entryId = undefined) {
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('该节点没有关联的会话')
+    const request = entryId === undefined ? { sessionId } : { sessionId, atSeq: forkBoundary(entryId) }
+    const { sessionId: forked } = await hostCall('创建分支', () => sessionController.fork(request))
+    return forked
+  }
+
+  async function renameSession(sessionId, name) {
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('该节点没有关联的会话')
+    const title = String(name ?? '').trim()
+    if (title === '') throw new Error('名称不能为空')
+    await hostCall('重命名会话', () => sessionController.rename({ sessionId, title }))
+  }
+
+  /**
+   * The harness's own archive.
+   *
+   * `stopActivity` is deliberately NOT passed: DSH's own archive command omits
+   * it too, so archiving a session that is still running is REFUSED
+   * (`workspace/session-active`) rather than silently killing the turn. The
+   * refusal reaches the user as an error card, which is the honest outcome —
+   * the alternative would stop work the user did not ask to stop.
+   */
+  async function archiveSession(sessionId, archived) {
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('该节点没有关联的会话')
+    if (workspaceController === undefined) throw new Error('当前宿主不支持 archiveSession（workspaceController 不可用）')
+    // A running session is REFUSED by the registry (`workspace/session-active`),
+    // which reaches the user as an error card rather than as a killed turn.
+    if (archived === true) await hostCall('归档会话', () => workspaceController.archiveSession({ sessionId }))
+    else await hostCall('取消归档', () => workspaceController.unarchiveSession({ sessionId }))
+  }
+
   return {
     id: 'dsh',
     defaultDataFile: () => join(resolveDshHome(dshHome), 'session-synapse', 'workspaces.json'),
     listSessions,
     readHistory,
     subscribe,
-    // What the CANVAS may do against this host. The writes are browser actions
-    // (the client half calls the host's own session API), so they are declared
-    // here rather than inferred from local methods — see the adapter contract.
+    sendMessage,
+    createSession,
+    forkSession,
+    renameSession,
+    archiveSession,
+    // The canvas cannot reach the harness's write services: they are cordis
+    // services inside this process, not HTTP routes on an origin the page
+    // shares. So the canvas calls `/synapse/api/host/*` and these methods run
+    // here instead.
+    writeTransport: WRITE_TRANSPORT,
+    // What the CANVAS may do against this host.
     //
-    // `openSession` is live: the client half handles `synapse:open-session` by
-    // asking the workspace UI to show that session's conversation.
-    capabilities: () => capabilities({ openSession: true, ...overrides }),
+    // `openSession` is live too, but through the other channel: the client half
+    // handles `synapse:open-session` by asking the workspace UI to show that
+    // session's conversation, because only the client owns the view.
+    //
+    // `btw` and `setTools` stay off on purpose. A /btw side question pins the
+    // forked session to read-only tools, and DSH has no per-session tool
+    // allowlist at all (tool restriction exists only in subagent descriptors
+    // and in permission presets). Forking without pinning would be a different
+    // feature wearing the same button.
+    capabilities: () => capabilities({ openSession: true, createSession: true, sendMessage: true, forkSession: true, renameSession: true, archiveSession: true, ...overrides }),
   }
 }
 

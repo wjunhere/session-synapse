@@ -105,11 +105,16 @@ async function main() {
   // The browser performs the writes (it shares pi-web's origin through the
   // proxy), so the capabilities are declared here and the canvas gates its UI
   // on them. `openSession` is also a browser action: a plain navigation.
+  //
+  // `createSession` is a write too — pi-web's `/api/agent/new` — but it is the
+  // canvas that performs it, which is why the capability is declared here
+  // while the adapter exposes no matching method (`writeTransport` stays the
+  // default `'host'`).
   const adapter = createPiAdapter({
     agentDir,
     renameSession: true,
     archiveSession: true,
-    capabilities: { openSession: true, forkSession: true, sendMessage: true, setTools: true, btw: true },
+    capabilities: { openSession: true, forkSession: true, sendMessage: true, createSession: true, setTools: true, btw: true },
   })
   const synapse = new Synapse({
     adapter,

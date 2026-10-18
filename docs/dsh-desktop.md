@@ -72,7 +72,30 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | 打开会话 | `?session=` 整页导航（父页面做） | `ctx.uiWorkspace.openSession(id)`（client 半区处理 `synapse:open-session`） |
 | 运行中/流式 | 父页面订阅 pi-web 的 SSE | client 半区保留 running 会话的引用，读它 event window 里的 `assistant/live-chunk`（`text-delta` 拼接） |
 | 主题 | `documentElement.dataset.theme` / `dark` class | `body[data-ds-dark-theme]`（client 半区转成 `synapse:theme`） |
-| 写操作（改名/归档/发消息/分支） | 浏览器直接调 pi-web 的 `/api/*` | 未实现（D4：走 client 半区的 `ctx.conversation` / `ctx.uiWorkspace`） |
+| 写操作（新建/发消息/分支/改名/归档） | 浏览器直接调 pi-web 的 `/api/*`（pi-web 要求 `Origin` 等于自己的 `Host`，只有页面能发） | 画布调 `/synapse/api/host/*`，插件在本进程内调 harness 服务（`ctx.sessionController` / `ctx.workspaceController`） |
+
+选择哪条通道不是画布决定的：`/synapse/api/status` 报 `writeTransport`（`'host'` / `'synapse'`），画布据此安装；未知值直接报错，不猜。画布只会调语义化操作（`hostSendMessage` / `hostForkSession` / `hostRenameSession` / `hostArchiveSession` / `hostEnsureSession`），宿主自己的命令词（`prompt` / `fork_branch` / `set_tools`）不外泄到 `app.js`。
+
+### 5.1 DSH 的写操作具体怎么落
+
+| 画布动作 | 路由 | harness 调用 |
+|---|---|---|
+| 新建会话 | `POST /synapse/api/host/session` | `sessionController.create({ cwd })` |
+| 发消息（可带图） | `POST /synapse/api/host/prompt` | `sessionController.prompt({ requestId, sessionId, mode: 'queue', content, clientTimeZone })` |
+| 分支 | `POST /synapse/api/host/fork` | `sessionController.fork({ sessionId, atSeq })` |
+| 改名 | `POST /synapse/api/host/rename` | `sessionController.rename({ sessionId, title })` |
+| 归档 / 取消归档 | `POST /synapse/api/host/archive` | `workspaceController.archiveSession({ sessionId })` / `unarchiveSession` |
+
+几个不能想当然的点：
+
+- **`atSeq` 是事件序号，不是索引，而且是闭区间。** 画布的 entry id 就是事件 `seq` 补零到 8 位（`dshEntryId`），所以 `Number(entryId)` 正好是逆运算；画布说的「从这一轮分叉」= 保留这一轮，与 harness 的闭区间语义一致。注意 DSH 的 id 是**十进制**，pi 的 entry id 是 8 位**十六进制**——形状一样、意思完全不同，所以 `forkBoundary()` 用十进制正则校验，把混淆当场报错。
+- **`mode: 'queue'` 而不是 `'steer'`。** 队列是在当前轮之后追加，steer 会打断当前轮——画布发一条消息不该打断正在跑的轮次。
+- **`requestId` 必须自己铸。** 宿主把它记成用户消息的 `rpcId` 并据此去重，重试要用同一个身份。
+- **图片字段叫 `mediaType`（不是 pi-web 的 `mimeType`），且是闭集**（`image/png|jpeg|webp|gif`）。不在集合里的类型在这里就报出具体类型，而不是等附件准入抛一个笼统的 `session/attachment-invalid`。模型不支持图片输入时 harness 会拒（`MODEL_DOES_NOT_SUPPORT_IMAGES`），这是真实错误，不绕过。
+- **归档不传 `stopActivity`。** DSH 自己的归档命令也不传：正在跑的会话会被**拒绝**（`workspace/session-active`），而不是静默把那一轮杀掉。
+- **`btw` / `setTools` 保持 false。** DSH 根本没有「按会话固定工具清单」这回事（工具限制只存在于 subagent 描述符和权限预设里），不固定工具的 fork 是另一个功能，不该借同一个按钮露出来。
+- **归档只影响 DSH 自己的侧栏。** `sessionController.list()` 不按归档集过滤（归档集是 workspace registry 的全局状态，由客户端 UI 用来过滤列表），所以归档后画布卡片照旧在——这与 pi-web 一致（那边归档也只隐藏 pi-web 自己的列表）。
+- **harness 的拒绝会带原文。** DSH 的 Remote 失败靠 `code` 判别（不用 `instanceof`），域内 code（`session/fork-unavailable`、`workspace/session-active`…）在 adapter 里转成 `HostRequestError` → 路由回 400 + harness 原话；`gateway/internal` 是 harness 自己的故障，继续走 500。
 
 ## 6. 验证
 
@@ -104,6 +127,15 @@ await composer.click(); await composer.type('写一篇 400 字短文…'); await
 
 反过来说，另一个进程（`dsh headless`、第二个 harness）写的会话，本进程只能在轮询里发现（坑 52），且**不会**有流式状态。
 
+写操作分两层验，两层都跑真宿主：
+
+```bash
+node B:/vibe_program/tmp/probe-dsh-writes.mjs      # 页面内 fetch 直接打 /synapse/api/host/*
+node B:/vibe_program/tmp/probe-dsh-ui-writes.mjs   # 真按画布按钮：新建/发消息/分支/改名/归档
+```
+
+UI 探针里有两处必须记住的细节：`data-thread` 是**画布线程 id**（不是会话 id，会话 id 形如 `session-<uuid>`）；画布会因投影刷新重渲染，元素句柄会失效，点之前要重新取。
+
 desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片能跳会话。host realm 可调试：CDP `ws://127.0.0.1:9230/devtools/page/<id>`（target 是 `dsh://host`）。
 
 ## 7. 坑（编号接仓库全局序列）
@@ -117,3 +149,6 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 50. **`/plugins/<pkg>/client.js` 不是稳定 URL。** 启动图用 combo URL（`/plugins/??a/client.js,b/client.js&rev=…`），直连单资源路径会 404 —— 404 不能当成「客户端半区没加载」，要看首页 HTML 里的 `__DSH_BOOT__`。
 51. **在 `ctx.sessions.list` 的订阅里 retain 会递归。** `retain()`/`release()` 会把引用计数发布到同一张列表快照里（行上的 `retainedBy`），于是在订阅者里调用它就又进一次订阅者 —— 实测 `RangeError: Maximum call stack size exceeded`，由 client store 的 subscriber 抛出，客户端 UI 停在半更新状态。加一个「已在同步中就直接返回」的门就能断环（外层那次会跑完同样的活）。
 52. **另一个进程写的会话，本进程看不见。** `session/created` / `session/event` 只覆盖本进程的事件；DSH 的持久化层没有 watcher，也没有变更事件，所以 `dsh headless`（或第二个 harness）新建/追加的会话在我们这里根本不触发通知 —— 实测：headless 跑完一整轮，画布仍是旧数量。适配器必须自己按 5s 重新列一次语料，只对 `updatedAt` 变了的行重新投影（与 pi 适配器需要轮询是同一个原因：画布不是它所读东西的唯一写入者）。
+53. **`sessionController.list()` 不按归档集过滤。** 归档集（`workspaceRegistry.archivedSessionIds`）是 registry 的全局状态，只由客户端 UI 用来过滤侧栏；宿主列表照旧返回已归档的会话。所以「归档成功」要看 `storages/workspace.json` 的 `global.archivedSessionIds`，用会话数量变化去判断会得出错误结论。
+54. **画布调不到 harness 的写服务。** 它们是本进程内的 cordis 服务，不是页面上某个 origin 的 HTTP 路由，pi-web 那套「同源 + 浏览器直接发」搬不过来。写操作因此必须由宿主插件代做（`writeTransport: 'synapse'`），并且这条路要显式声明：默认值仍是 `'host'`，缺字段时不会把写操作悄悄改道。
+55. **DSH 的 Remote 失败不能用 `instanceof` 判。** 类会被 Gateway 跨 bundle 重建，官方判据是 `code` 字符串（`isDSHRemoteError === true` 是结构标记）。而且「请求有问题」与「harness 自己坏了」共用同一个类：域内 code 应当回 400 带原文，`gateway/internal` 才该是 500 —— 一律当 500 会把用户能自己修的问题藏进服务器错误。

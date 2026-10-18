@@ -14,7 +14,7 @@ import { inlineMarkdown, renderMarkdown } from './markdown.js'
 import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH } from './storage.js'
-import { api, piWeb, post, openSessionInHost, hostCommand, hostEnsureSession, hostForkSession, hostBtwSession } from './host.js'
+import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
 import { hostLabels } from './host-labels.js'
 
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
@@ -264,13 +264,10 @@ async function renameThread(thread) {
   const name = next.trim()
   if (name === '' || name === current) return
   try {
-    // The canvas shares pi-web's origin, so it calls pi-web directly: a
-    // server-side fetch of a relative URL has no base, and pi-web rejects any
-    // request whose Origin differs from its own Host.
-    await piWeb(`/api/sessions/${encodeURIComponent(thread.sessionId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ name }),
-    })
+    // The canvas does not talk to the host's own API itself: which channel a
+    // write takes is the host's decision (`writeTransport`), and `host.js` owns
+    // both of them.
+    await hostRenameSession(thread.sessionId, name)
     if (state.workspace !== null) {
       const target = state.workspace.threads.find(item => item.id === thread.id)
       if (target !== undefined) {
@@ -286,17 +283,11 @@ async function renameThread(thread) {
   render()
 }
 
-/** pi-web's own archive: the session file stays, pi-web's sidebar hides it. */
+/** The host's own archive: the session file stays, the host's sidebar hides it. */
 async function archiveInHost(thread, archived = true) {
   if (thread.sessionId === null) return setError('该节点没有关联的会话')
   try {
-    // pi-web keys archive state by session FAMILY root; a standalone session is
-    // its own root. Both directions are `action: "set"` — `restore` is a
-    // different request that replays an exact prior-values snapshot for undo.
-    await piWeb('/api/sessions/ui-state', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'set', ids: [thread.sessionId], archived: archived === true }),
-    })
+    await hostArchiveSession(thread.sessionId, archived)
     state.error = ''
     await refreshProjection()
   } catch (error) {
@@ -380,7 +371,7 @@ async function sendMessage(thread, text, images = []) {
   state.error = ''
   render()
   try {
-    await hostCommand('prompt', { sessionId: thread.sessionId, message: text, images: promptImages(images) })
+    await hostSendMessage(thread.sessionId, text, promptImages(images))
   } catch (error) {
     state.pendingReplies.delete(thread.sessionId)
     render()
@@ -401,7 +392,7 @@ async function submitDraft() {
   try {
     if (draft.kind === 'new') {
       const session = await hostEnsureSession(state.workspace?.cwd ?? state.currentSession?.cwd)
-      await hostCommand('prompt', { sessionId: session.id, message: text, images: promptImages(images) })
+      await hostSendMessage(session.id, text, promptImages(images))
       releaseDraftImages(draft)
       state.draft = null
       render()
@@ -436,7 +427,7 @@ async function submitDraft() {
     state.draft = null
     state.pendingReplies.set(result.thread.sessionId, { text: draftMessageText(text, images), at: Date.now(), imageCount: images.length })
     render()
-    await hostCommand('prompt', { sessionId: result.thread.sessionId, message: text, images: promptImages(images) })
+    await hostSendMessage(result.thread.sessionId, text, promptImages(images))
     await refreshProjection()
   } catch (error) {
     if (draft.kind === 'branch') {
@@ -481,7 +472,7 @@ async function submitBtwDraft(draft, parent, text, images = []) {
   state.mode = 'canvas'
   state.pendingReplies.set(result.thread.sessionId, { text: draftMessageText(text, images), at: Date.now(), imageCount: images.length })
   render()
-  await hostCommand('prompt', { sessionId: result.thread.sessionId, message: text, images: promptImages(images) })
+  await hostSendMessage(result.thread.sessionId, text, promptImages(images))
   await refreshProjection()
 }
 
@@ -1265,7 +1256,7 @@ function renderCanvas() {
   const threads = state.workspace?.threads ?? []
   if (threads.length === 0 && state.draft?.kind !== 'new') {
     clearCanvasCards()
-    return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.sendMessage === true ? '新建一个会话，在画布上输入第一条消息。' : state.hostLabels.startHint}</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
+    return `<section class="empty-canvas"><strong>当前工作目录还没有会话</strong><p>${state.capabilities.createSession === true ? '新建一个会话，在画布上输入第一条消息。' : state.hostLabels.startHint}</p>${state.capabilities.createSession === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
   }
   // Cards are built from the VISIBLE threads only: a hidden (or aged-out)
   // session must not occupy a lane, a connector or a card slot. The sidebar
@@ -1276,7 +1267,7 @@ function renderCanvas() {
     const stale = threads.filter(thread => threadVisibility(thread) === 'stale').length
     const hidden = threads.length - stale
     const reasons = [stale === 0 ? '' : `${stale} 个超过 ${RECENT_WINDOW_DAYS} 天没有活动`, hidden === 0 ? '' : `${hidden} 个被收起`].filter(reason => reason !== '').join('，')
-    return `<section class="empty-canvas"><strong>这个工作区暂时没有要显示的卡片</strong><p>${reasons}。在左侧「会话」列表里点眼睛图标可以把它们放回画布。</p>${state.capabilities.sendMessage === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
+    return `<section class="empty-canvas"><strong>这个工作区暂时没有要显示的卡片</strong><p>${reasons}。在左侧「会话」列表里点眼睛图标可以把它们放回画布。</p>${state.capabilities.createSession === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
   }
   const allCards = conversationCards(visibleThreads)
   const graph = conversationGraphView(allCards)
@@ -1417,7 +1408,7 @@ function render() {
   const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout" title="整理节点" aria-label="整理节点">${ICON(`<path d="${ICON_PATHS.grid}"/>`)}整理</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话">${ICON(`<path d="${ICON_PATHS.target}"/>`)}定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小">${ICON(`<path d="${ICON_PATHS.zoomOut}"/>`)}</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大">${ICON(`<path d="${ICON_PATHS.zoomIn}"/>`)}</button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
-  const newSessionButton = state.capabilities.sendMessage === true
+  const newSessionButton = state.capabilities.createSession === true
     ? `<button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}>${ICON(`<path d="${ICON_PATHS.plus}"/>`, { className: 'new-session-icon' })}<span>新会话</span></button>`
     : ''
   // The sidebar is an index, not a menu: each row carries its position in the
@@ -2036,12 +2027,18 @@ window.addEventListener('message', event => {
 })
 
 post('synapse:map-ready')
-// The host declares what it can do, and how it names itself; the canvas hides
-// actions it cannot perform rather than showing buttons that would fail.
+// The host declares what it can do, how it names itself, and how it wants its
+// writes delivered; the canvas hides actions it cannot perform rather than
+// showing buttons that would fail.
 api('/synapse/api/status').then(status => {
-  if (status?.capabilities !== undefined) state.capabilities = { ...state.capabilities, ...status.capabilities }
-  if (typeof status?.adapter === 'string') state.hostLabels = hostLabels(status.adapter)
-  if (Array.isArray(status?.readOnlyTools) && status.readOnlyTools.length > 0) state.readOnlyTools = status.readOnlyTools.filter(name => typeof name === 'string')
+  try {
+    if (status?.capabilities !== undefined) state.capabilities = { ...state.capabilities, ...status.capabilities }
+    if (typeof status?.adapter === 'string') state.hostLabels = hostLabels(status.adapter)
+    useWriteTransport(status?.writeTransport)
+    if (Array.isArray(status?.readOnlyTools) && status.readOnlyTools.length > 0) state.readOnlyTools = status.readOnlyTools.filter(name => typeof name === 'string')
+  } catch (error) {
+    setError(error)
+  }
   render()
 }).catch(() => {})
 refreshSummaries().catch(setError)

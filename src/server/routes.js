@@ -6,7 +6,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { InputError, NotFoundError, readJson, sendJson } from './guard.js'
-import { READ_ONLY_TOOLS } from '../adapters/contract.js'
+import { READ_ONLY_TOOLS, writeTransport } from '../adapters/contract.js'
 
 const UUID = /^\/synapse\/api\/workspaces\/([0-9a-f-]+)$/i
 const BRANCH = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/branch$/i
@@ -32,11 +32,46 @@ export function createApiHandler(synapse, isTrustedHost) {
         return sendJson(res, 200, {
           adapter: synapse.adapter.id,
           capabilities: synapse.adapter.capabilities(),
+          // How the canvas reaches this host's writes: its own API from the
+          // browser, or our routes (see the adapter contract).
+          writeTransport: writeTransport(synapse.adapter),
           // The canvas needs the host's read-only preset to create a /btw
           // session; echoing it here keeps the two definitions from drifting.
           readOnlyTools: READ_ONLY_TOOLS,
           sessions: synapse.sessions.size,
         })
+      }
+      // Host writes, for hosts the browser cannot reach directly.
+      //
+      // pi-web needs neither: the canvas shares its origin and calls it itself
+      // (pi-web rejects any request whose Origin is not its own Host, so only a
+      // page can). DSH is the opposite — its write surface is cordis services
+      // inside the harness process — so the canvas calls these and the adapter
+      // performs them. `requireCapability` refuses with 「当前宿主不支持 …」,
+      // which is mapped to a 400 below.
+      if (path === '/synapse/api/host/prompt' && method === 'POST') {
+        const body = await readJson(req)
+        await synapse.sendMessage(String(body.sessionId ?? ''), String(body.text ?? ''), Array.isArray(body.images) ? body.images : [])
+        return sendJson(res, 200, { ok: true })
+      }
+      if (path === '/synapse/api/host/session' && method === 'POST') {
+        const body = await readJson(req)
+        return sendJson(res, 201, { sessionId: await synapse.createSession(typeof body.cwd === 'string' ? body.cwd : null) })
+      }
+      if (path === '/synapse/api/host/fork' && method === 'POST') {
+        const body = await readJson(req)
+        const sessionId = await synapse.forkSession(String(body.sessionId ?? ''), typeof body.entryId === 'string' && body.entryId !== '' ? body.entryId : undefined)
+        return sendJson(res, 201, { sessionId })
+      }
+      if (path === '/synapse/api/host/rename' && method === 'POST') {
+        const body = await readJson(req)
+        await synapse.renameSession(String(body.sessionId ?? ''), String(body.title ?? ''))
+        return sendJson(res, 200, { ok: true })
+      }
+      if (path === '/synapse/api/host/archive' && method === 'POST') {
+        const body = await readJson(req)
+        await synapse.archiveSession(String(body.sessionId ?? ''), body.archived === true)
+        return sendJson(res, 200, { ok: true })
       }
       if (path === '/synapse/api/sessions/sync' && method === 'POST') {
         return sendJson(res, 200, { workspaces: await synapse.syncSessions() })
@@ -78,10 +113,12 @@ export function createApiHandler(synapse, isTrustedHost) {
       if (thread !== null && method === 'DELETE') {
         return sendJson(res, 200, await synapse.removeThread(thread[1]))
       }
-      // Renaming and archiving a host session are done by the BROWSER, which
-      // shares pi-web's origin; the server cannot call pi-web's relative API
-      // (and pi-web would reject the cross-origin request anyway). The canvas
-      // learns the result from the normal projection rescan.
+      // Renaming and archiving a host session on pi-web are done by the
+      // BROWSER, which shares pi-web's origin; there the server cannot call
+      // pi-web's relative API (and pi-web would reject the cross-origin request
+      // anyway), and the canvas learns the result from the projection rescan.
+      // Hosts the browser cannot reach write through `/synapse/api/host/*`
+      // above instead.
       return sendJson(res, 404, { error: '接口不存在' })
     } catch (error) {
       if (error instanceof InputError) return sendJson(res, 400, { error: error.message })

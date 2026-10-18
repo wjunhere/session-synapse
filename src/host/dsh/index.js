@@ -25,7 +25,7 @@ import { createDshAdapter } from '../../adapters/dsh.js'
 import { acquireInstanceLock } from '../../store/instance-lock.js'
 
 export const name = 'synapse'
-export const inject = ['webServer', 'sessionController', 'sessionQuery']
+export const inject = ['webServer', 'sessionController', 'sessionQuery', 'workspaceController']
 
 /**
  * @param {any} ctx                the DSH plugin context (a cordis Context)
@@ -43,6 +43,10 @@ export async function apply(ctx, config) {
   const adapter = createDshAdapter({
     sessionController: ctx.sessionController,
     sessionQuery: ctx.sessionQuery,
+    // Archive lives in the workspace registry, not the session controller: the
+    // archive set is registry-global and its admission gate owns what a running
+    // session is allowed to do.
+    workspaceController: ctx.workspaceController,
     on: (event, listener) => ctx.on(event, listener),
     dshHome: typeof config?.dshHome === 'string' ? config.dshHome : undefined,
     includeSubagents: config?.includeSubagents === true,

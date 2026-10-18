@@ -14,10 +14,11 @@
  *   - rename    PATCH /api/sessions/:id  { name }
  *   - archive   POST /api/sessions/ui-state  { action: 'set', ids, archived }
  */
-import { capabilities, READ_ONLY_TOOLS } from './contract.js'
+import { capabilities, HostRequestError, READ_ONLY_TOOLS } from './contract.js'
 
-/** A host that rejects the call for a reason worth showing to the user. */
-export class HostRequestError extends Error {}
+// The refusal class lives in the host-neutral contract now (DSH raises it too);
+// it stays re-exported here because this module is its documented import path.
+export { HostRequestError }
 
 async function requestJson(url, init, what, fetchImpl) {
   let response

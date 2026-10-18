@@ -51,6 +51,7 @@
  *   capability can be true while the adapter exposes no matching method; call
  *   `adapter[name]` only through `requireCapability()`.
  * @property {boolean} sendMessage
+ * @property {boolean} createSession  a session on a cwd, created when there is none
  * @property {boolean} forkSession
  * @property {boolean} openSession
  * @property {boolean} renameSession
@@ -65,19 +66,61 @@
  * @property {(session: HostSession) => Promise<SessionHistory>} readHistory
  * @property {(onChange: (session: HostSession) => void) => () => void} subscribe
  * @property {() => AdapterCapabilities} capabilities
- * @property {((sessionId: string, text: string) => Promise<void>)} [sendMessage]
+ * @property {(() => WriteTransport)} [writeTransport]
+ *   HOW the canvas reaches the host's write surface, which is a property of
+ *   the host integration rather than of the action:
+ *
+ *     - `'host'` — the canvas calls the host's OWN api from the browser. This
+ *       is pi-web: the canvas is same-origin with it (through the proxy), and
+ *       pi-web rejects any request whose `Origin` is not its own `Host`, so
+ *       only a page can perform the write.
+ *     - `'synapse'` — the canvas calls `/synapse/api/host/*` and THIS process
+ *       performs the write through the adapter's own methods. This is DSH: the
+ *       plugin runs inside the harness, which owns `sessionController` and
+ *       `workspaceController`, so the write is a direct service call.
+ *
+ *   Omitted means `'host'`.
+ * @property {((sessionId: string, text: string, images?: PromptImage[]) => Promise<void>)} [sendMessage]
  * @property {((sessionId: string, entryId?: string) => Promise<string>)} [forkSession]
  *   `entryId` forks at that entry instead of at the branch's leaf. Optional:
  *   pi-web's file-level fork cannot express it and ignores the argument.
+ * @property {((cwd: string|null) => Promise<string>)} [createSession]
+ *   Id of a usable session on that cwd, created when there is none.
  * @property {((sessionId: string) => Promise<void>)} [openSession]
  * @property {((sessionId: string, name: string) => Promise<void>)} [renameSession]
  * @property {((sessionId: string, archived: boolean) => Promise<void>)} [archiveSession]
+ *
+ * @typedef {object} PromptImage
+ *   One image attached to a prompt, in the shape the CANVAS holds it:
+ *   base64 with no data-URL prefix (`src/canvas/images.js`). Hosts differ in
+ *   what they call the field (`mimeType` for pi-web, `mediaType` for DSH), so
+ *   the mapping belongs to each adapter.
+ * @property {string} data
+ * @property {string} mimeType
+ *
+ * @typedef {'host'|'synapse'} WriteTransport
  */
 
-/** Capabilities a host may or may not provide; the UI hides what is missing. */
-export function capabilities(overrides = {}) {
+/**
+ * A host refused the call for a reason worth showing to the user.
+ *
+ * Host-neutral: pi-web raises it for a non-2xx API answer, DSH for a Remote
+ * failure whose code says the REQUEST was the problem. The `/synapse/api/*`
+ * routes map it to a 400 with the host's own message, because a refusal is the
+ * caller's problem rather than a server fault — which is also why the routes
+ * recognise it by `name` rather than by class.
+ */
+export class HostRequestError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'HostRequestError'
+  }
+}
+
+/** Capabilities a host may or may not provide; the UI hides what is missing. */export function capabilities(overrides = {}) {
   return {
     sendMessage: false,
+    createSession: false,
     forkSession: false,
     openSession: false,
     archiveSession: false,
@@ -98,6 +141,19 @@ export function capabilities(overrides = {}) {
  * same loadout pi-web would show for the same session.
  */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls']
+
+/**
+ * How the canvas reaches this host's write surface; omitted means `'host'`.
+ *
+ * @param {SynapseAdapter} adapter
+ * @returns {WriteTransport}
+ */
+export function writeTransport(adapter) {
+  if (typeof adapter?.writeTransport !== 'function') return 'host'
+  const transport = adapter.writeTransport()
+  if (transport !== 'host' && transport !== 'synapse') throw new Error(`adapter.writeTransport() 返回了未知的传输方式：${String(transport)}`)
+  return transport
+}
 
 /**
  * Resolve a method an adapter may or may not implement.
