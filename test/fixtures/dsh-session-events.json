@@ -1,0 +1,1799 @@
+[
+ {
+  "type": "session",
+  "version": 4,
+  "id": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+  "createdAt": 1792326212427,
+  "cwd": "/probe/workspace",
+  "isSeeded": false,
+  "delegationDepth": 0
+ },
+ {
+  "type": "permission/preset",
+  "seq": 0,
+  "time": 1792326212464,
+  "data": {
+   "preset": "danger-full-access"
+  }
+ },
+ {
+  "type": "sandbox/mode",
+  "seq": 1,
+  "time": 1792326212466,
+  "data": {
+   "mode": "danger-full-access"
+  }
+ },
+ {
+  "type": "approval/policy",
+  "seq": 2,
+  "time": 1792326212466,
+  "data": {
+   "policy": "never"
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 3,
+  "time": 1792326212467,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "inserted": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "用 bash 工具执行 echo probe-fixture，然后用一句话说明你看到了什么。不要读任何文件。"
+      }
+     ],
+     "source": {
+      "kind": "user"
+     },
+     "role": "user",
+     "id": "b9916dbe-4089-41e3-ac50-5bd6331a3ce5"
+    }
+   ]
+  }
+ },
+ {
+  "type": "turn/start",
+  "seq": 4,
+  "time": 1792326212468,
+  "data": {
+   "turn": 1
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 5,
+  "time": 1792326212468,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "removedCount": 1,
+   "inserted": []
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 6,
+  "time": 1792326212667,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "user/message",
+  "seq": 8,
+  "time": 1792326212668,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "用 bash 工具执行 echo probe-fixture，然后用一句话说明你看到了什么。不要读任何文件。"
+    }
+   ],
+   "source": {
+    "kind": "user"
+   },
+   "role": "user",
+   "id": "b9916dbe-4089-41e3-ac50-5bd6331a3ce5"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "user/message",
+  "seq": 9,
+  "time": 1792326212669,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+    }
+   ],
+   "source": {
+    "kind": "runtime-context",
+    "form": "snapshot",
+    "sections": [
+     {
+      "name": "sandbox:policy",
+      "text": "Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations."
+     },
+     {
+      "name": "approval:policy",
+      "text": "Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+     }
+    ]
+   },
+   "role": "user",
+   "id": "43bfeaf0-706d-4e74-aba5-77fe62f2cc53"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "request/context",
+  "seq": 12,
+  "time": 1792326212671,
+  "data": {
+   "provider": "deepseek-official",
+   "model": "deepseek-flash",
+   "contextWindow": 1000000,
+   "systemPromptUpdate": "in-history"
+  }
+ },
+ {
+  "type": "session/title",
+  "seq": 13,
+  "time": 1792326212673,
+  "data": {
+   "title": "用 bash 工具执行 echo probe-fixture",
+   "messageSeqs": [
+    8
+   ],
+   "source": {
+    "kind": "fallback"
+   }
+  }
+ },
+ {
+  "type": "session/title-llm-request",
+  "seq": 14,
+  "time": 1792326212674,
+  "data": {
+   "titleProvider": "session-title-first-prompt-llm",
+   "messageSeqs": [
+    8
+   ],
+   "route": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash"
+   },
+   "system": "Create a concise title for an AI coding-assistant session from the supplied human messages.\nReturn only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.\nUse the language of the messages.\nAim for about 5 words in non-CJK languages or 10 CJK characters.",
+   "messages": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "Generate the session title from this JSON array of human messages:\n[{\"seq\":8,\"text\":\"用 bash 工具执行 echo probe-fixture，然后用一句话说明你看到了什么。不要读任何文件。\"}]"
+      }
+     ],
+     "source": {
+      "kind": "dsh-session-title-llm"
+     },
+     "role": "user",
+     "id": "7f32d13d-7ee7-4c38-b10f-4a3171dd6caa"
+    }
+   ],
+   "maxTokens": 64
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 15,
+  "time": 1792326212920,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 14
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 16,
+  "time": 1792326212930,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 14
+  }
+ },
+ {
+  "type": "session/title",
+  "seq": 17,
+  "time": 1792326213669,
+  "data": {
+   "title": "执行 echo 命令并说明输出",
+   "messageSeqs": [
+    8
+   ],
+   "source": {
+    "kind": "provider",
+    "provider": "session-title-first-prompt-llm",
+    "model": {
+     "provider": "deepseek-official",
+     "model": "deepseek-flash"
+    }
+   }
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 18,
+  "time": 1792326213944,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "The user asks to use bash tool to run echo probe-fixture. I have pwsh tool, not bash. I should just run echo via pwsh, since no bash tool available. Best to do the task with the available shell. Then say in one sentence what I saw. Don't read files.\n\nI'll run echo probe-fixture with pwsh."
+     },
+     {
+      "type": "tool-call",
+      "id": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+      "name": "pwsh",
+      "arguments": "{\"command\": \"echo probe-fixture\", \"description\": \"Echo probe-fixture to stdout\"}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "f1dccdf2-6208-4792-9103-6b61aa110b9b"
+       },
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "da31247c-bf1b-4394-9673-17b61698f069"
+   },
+   "usage": {
+    "inputTokens": 6327,
+    "outputTokens": 136,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "totalTokens": 6463
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326212972,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "reasoning-chunks",
+     "time0": 1792326213443,
+     "index": 0,
+     "dt": [
+      80,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      9,
+      0,
+      0,
+      10,
+      0,
+      74,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      4,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      17,
+      11,
+      0,
+      12,
+      13,
+      0,
+      0,
+      14,
+      0,
+      0,
+      12,
+      0,
+      0,
+      14,
+      1,
+      0,
+      0,
+      11,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      16,
+      0,
+      0,
+      0,
+      17,
+      1,
+      0
+     ],
+     "texts": [
+      "The",
+      " user",
+      " asks",
+      " to",
+      " use",
+      " bash",
+      " tool",
+      " to",
+      " run",
+      " echo",
+      " probe",
+      "-fi",
+      "xture",
+      ".",
+      " I",
+      " have",
+      " pw",
+      "sh",
+      " tool",
+      ",",
+      " not",
+      " bash",
+      ".",
+      " I",
+      " should",
+      " just",
+      " run",
+      " echo",
+      " via",
+      " pw",
+      "sh",
+      ",",
+      " since",
+      " no",
+      " bash",
+      " tool",
+      " available",
+      ".",
+      " Best",
+      " to",
+      " do",
+      " the",
+      " task",
+      " with",
+      " the",
+      " available",
+      " shell",
+      ".",
+      " Then",
+      " say",
+      " in",
+      " one",
+      " sentence",
+      " what",
+      " I",
+      " saw",
+      ".",
+      " Don",
+      "'t",
+      " read",
+      " files",
+      ".\n\n",
+      "I",
+      "'ll",
+      " run",
+      " echo",
+      " probe",
+      "-fi",
+      "xture",
+      " with",
+      " pw",
+      "sh",
+      "."
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326213806,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": "The user asks to use bash tool to run echo probe-fixture. I have pwsh tool, not bash. I should just run echo via pwsh, since no bash tool available. Best to do the task with the available shell. Then say in one sentence what I saw. Don't read files.\n\nI'll run echo probe-fixture with pwsh."
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326213806,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "tool-call"
+     }
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792326213806,
+     "index": 1,
+     "dt": [],
+     "id": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+     "name": "pwsh",
+     "args": [
+      ""
+     ]
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792326213821,
+     "index": 1,
+     "dt": [
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      12,
+      0,
+      0,
+      12,
+      0,
+      0,
+      16,
+      0,
+      0,
+      0,
+      11,
+      0,
+      0,
+      0,
+      0,
+      15,
+      12,
+      0
+     ],
+     "id": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+     "args": [
+      "{",
+      "\"",
+      "command",
+      "\"",
+      ": ",
+      "\"",
+      "echo",
+      " probe",
+      "-fi",
+      "xture",
+      "\"",
+      ", ",
+      "\"",
+      "description",
+      "\"",
+      ": ",
+      "\"",
+      "E",
+      "cho",
+      " probe",
+      "-fi",
+      "xture",
+      " to",
+      " stdout",
+      "\"",
+      "}"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326213943,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "tool-call",
+       "id": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+       "name": "pwsh",
+       "arguments": "{\"command\": \"echo probe-fixture\", \"description\": \"Echo probe-fixture to stdout\"}"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326213943,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 6327,
+       "outputTokens": 136,
+       "cacheReadTokens": 0,
+       "cacheWriteTokens": 0,
+       "totalTokens": 6463
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326213943,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "tool-calls"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "f1dccdf2-6208-4792-9103-6b61aa110b9b"
+        },
+        {
+         "type": "tool-call"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "tool/call",
+  "seq": 19,
+  "time": 1792326213945,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "callId": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+   "name": "pwsh",
+   "arguments": "{\"command\": \"echo probe-fixture\", \"description\": \"Echo probe-fixture to stdout\"}"
+  }
+ },
+ {
+  "type": "tool/result",
+  "seq": 20,
+  "time": 1792326214783,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "message": {
+    "role": "tool",
+    "source": {
+     "kind": "tool",
+     "callId": "call_00_OzPvBgnFAd1BBKpUnTie8625"
+    },
+    "toolCallId": "call_00_OzPvBgnFAd1BBKpUnTie8625",
+    "content": [
+     {
+      "type": "text",
+      "text": "probe-fixture\r\n"
+     }
+    ],
+    "isError": false,
+    "id": "0d489069-2a05-4ad6-8d38-614fffd4dfd4"
+   }
+  },
+  "sourceEventSeqs": [
+   19
+  ],
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 21,
+  "time": 1792326214785,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 22,
+  "time": 1792326214809,
+  "data": {
+   "turn": 1,
+   "step": 2
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 23,
+  "time": 1792326215001,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 22
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 24,
+  "time": 1792326215433,
+  "data": {
+   "turn": 1,
+   "step": 2,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": ""
+     },
+     {
+      "type": "text",
+      "text": "执行命令 `echo probe-fixture` 后，标准输出只打印了一行 `probe-fixture`。\n\n说明：本会话没有 bash 工具，命令是通过 PowerShell (`pwsh`) 执行的，效果相同。"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "74e0f5ab-3c15-4403-a145-694d5b5f4c42"
+       },
+       {
+        "type": "text"
+       }
+      ]
+     }
+    },
+    "id": "1025f1ca-9391-4298-b52f-35fb0e49463b"
+   },
+   "usage": {
+    "inputTokens": 209,
+    "outputTokens": 47,
+    "cacheReadTokens": 6272,
+    "cacheWriteTokens": 0,
+    "totalTokens": 6528
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326215004,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326215272,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326215273,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "text"
+     }
+    },
+    {
+     "type": "text-chunks",
+     "time0": 1792326215273,
+     "index": 1,
+     "dt": [
+      18,
+      6,
+      17,
+      0,
+      0,
+      0,
+      0,
+      0,
+      11,
+      0,
+      0,
+      11,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      16,
+      1,
+      0,
+      0,
+      0,
+      0,
+      8,
+      0,
+      0,
+      0,
+      0,
+      0,
+      13,
+      0,
+      14,
+      1,
+      11,
+      0,
+      0,
+      1,
+      0,
+      0,
+      13,
+      0,
+      0
+     ],
+     "texts": [
+      "执行",
+      "命令",
+      " `",
+      "echo",
+      " probe",
+      "-fi",
+      "xture",
+      "`",
+      " ",
+      "后",
+      "，",
+      "标准",
+      "输出",
+      "只",
+      "打印",
+      "了一",
+      "行",
+      " `",
+      "pro",
+      "be",
+      "-fi",
+      "xture",
+      "`",
+      "。\n\n",
+      "说明",
+      "：",
+      "本",
+      "会话",
+      "没有",
+      " bash",
+      " ",
+      "工具",
+      "，",
+      "命令",
+      "是通过",
+      " PowerShell",
+      " (`",
+      "pw",
+      "sh",
+      "`)",
+      " ",
+      "执行的",
+      "，",
+      "效果",
+      "相同",
+      "。"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326215431,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "text",
+       "text": "执行命令 `echo probe-fixture` 后，标准输出只打印了一行 `probe-fixture`。\n\n说明：本会话没有 bash 工具，命令是通过 PowerShell (`pwsh`) 执行的，效果相同。"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326215431,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 209,
+       "outputTokens": 47,
+       "cacheReadTokens": 6272,
+       "cacheWriteTokens": 0,
+       "totalTokens": 6528
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326215431,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "stop"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "74e0f5ab-3c15-4403-a145-694d5b5f4c42"
+        },
+        {
+         "type": "text"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 25,
+  "time": 1792326215434,
+  "data": {
+   "turn": 1,
+   "step": 2
+  }
+ },
+ {
+  "type": "turn/end",
+  "seq": 26,
+  "time": 1792326215435,
+  "data": {
+   "turn": 1,
+   "reason": {
+    "kind": "completed"
+   }
+  }
+ },
+ {
+  "type": "session/end-seed",
+  "seq": 27,
+  "time": 1792326242231,
+  "data": {}
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 28,
+  "time": 1792326242238,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "inserted": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "再回答一句：这是第二轮。"
+      }
+     ],
+     "source": {
+      "kind": "user"
+     },
+     "role": "user",
+     "id": "d73ef5cb-87c0-4152-bf48-67b052da0c04"
+    }
+   ]
+  }
+ },
+ {
+  "type": "turn/start",
+  "seq": 29,
+  "time": 1792326242239,
+  "data": {
+   "turn": 2
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 30,
+  "time": 1792326242239,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "removedCount": 1,
+   "inserted": []
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 31,
+  "time": 1792326242264,
+  "data": {
+   "turn": 2,
+   "step": 1
+  }
+ },
+ {
+  "type": "user/message",
+  "seq": 32,
+  "time": 1792326242265,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "再回答一句：这是第二轮。"
+    }
+   ],
+   "source": {
+    "kind": "user"
+   },
+   "role": "user",
+   "id": "d73ef5cb-87c0-4152-bf48-67b052da0c04"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 34,
+  "time": 1792326242559,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 33
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 35,
+  "time": 1792326243007,
+  "data": {
+   "turn": 2,
+   "step": 1,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": ""
+     },
+     {
+      "type": "text",
+      "text": "这是第二轮。"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "66c0c5bb-3041-44bb-8047-685eb17f0927"
+       },
+       {
+        "type": "text"
+       }
+      ]
+     }
+    },
+    "id": "0c2338bf-04e8-4197-8da7-b0dbb5532861"
+   },
+   "usage": {
+    "inputTokens": 139,
+    "outputTokens": 4,
+    "cacheReadTokens": 6400,
+    "cacheWriteTokens": 0,
+    "totalTokens": 6543
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326242568,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326242981,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326242981,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "text"
+     }
+    },
+    {
+     "type": "text-chunks",
+     "time0": 1792326242981,
+     "index": 1,
+     "dt": [
+      14,
+      0
+     ],
+     "texts": [
+      "这是",
+      "第二轮",
+      "。"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326243005,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "text",
+       "text": "这是第二轮。"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326243005,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 139,
+       "outputTokens": 4,
+       "cacheReadTokens": 6400,
+       "cacheWriteTokens": 0,
+       "totalTokens": 6543
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326243005,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "stop"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "66c0c5bb-3041-44bb-8047-685eb17f0927"
+        },
+        {
+         "type": "text"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 36,
+  "time": 1792326243007,
+  "data": {
+   "turn": 2,
+   "step": 1
+  }
+ },
+ {
+  "type": "turn/end",
+  "seq": 37,
+  "time": 1792326243008,
+  "data": {
+   "turn": 2,
+   "reason": {
+    "kind": "completed"
+   }
+  }
+ },
+ {
+  "type": "session/end-seed",
+  "seq": 38,
+  "time": 1792326521029,
+  "data": {}
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 39,
+  "time": 1792326521036,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "inserted": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "用 todo 工具写两条待办（内容随意，比如「检查投影」和「写单测」），然后一句话确认。"
+      }
+     ],
+     "source": {
+      "kind": "user"
+     },
+     "role": "user",
+     "id": "36d80a4c-839b-4007-99c3-e72ff0c0f0f8"
+    }
+   ]
+  }
+ },
+ {
+  "type": "turn/start",
+  "seq": 40,
+  "time": 1792326521037,
+  "data": {
+   "turn": 3
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 41,
+  "time": 1792326521038,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "removedCount": 1,
+   "inserted": []
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 42,
+  "time": 1792326521065,
+  "data": {
+   "turn": 3,
+   "step": 1
+  }
+ },
+ {
+  "type": "user/message",
+  "seq": 43,
+  "time": 1792326521066,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "用 todo 工具写两条待办（内容随意，比如「检查投影」和「写单测」），然后一句话确认。"
+    }
+   ],
+   "source": {
+    "kind": "user"
+   },
+   "role": "user",
+   "id": "36d80a4c-839b-4007-99c3-e72ff0c0f0f8"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 45,
+  "time": 1792326521740,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 44
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 46,
+  "time": 1792326522272,
+  "data": {
+   "turn": 3,
+   "step": 1,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": ""
+     },
+     {
+      "type": "tool-call",
+      "id": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+      "name": "todo_write",
+      "arguments": "{\"todos\": [{\"content\": \"检查投影\", \"status\": \"pending\"}, {\"content\": \"写单测\", \"status\": \"pending\"}]}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "e80ea307-a628-44b4-a082-376b1576233b"
+       },
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "62b692cb-c4b1-4126-a727-c78d3494cb50"
+   },
+   "usage": {
+    "inputTokens": 175,
+    "outputTokens": 67,
+    "cacheReadTokens": 6400,
+    "cacheWriteTokens": 0,
+    "totalTokens": 6642
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326521748,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522143,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522143,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "tool-call"
+     }
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792326522143,
+     "index": 1,
+     "dt": [],
+     "id": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+     "name": "todo_write",
+     "args": [
+      ""
+     ]
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792326522155,
+     "index": 1,
+     "dt": [
+      1,
+      0,
+      26,
+      0,
+      0,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      8,
+      0,
+      0,
+      0,
+      0,
+      0,
+      17,
+      0,
+      0,
+      1,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      9,
+      0,
+      1,
+      0,
+      0,
+      21
+     ],
+     "id": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+     "args": [
+      "{",
+      "\"",
+      "t",
+      "odos",
+      "\"",
+      ": ",
+      "[",
+      "{\"",
+      "content",
+      "\":",
+      " \"",
+      "检查",
+      "投影",
+      "\",",
+      " \"",
+      "status",
+      "\":",
+      " \"",
+      "pending",
+      "\"},",
+      " {\"",
+      "content",
+      "\":",
+      " \"",
+      "写",
+      "单",
+      "测",
+      "\",",
+      " \"",
+      "status",
+      "\":",
+      " \"",
+      "pending",
+      "\"",
+      "}]",
+      "}"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522266,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "tool-call",
+       "id": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+       "name": "todo_write",
+       "arguments": "{\"todos\": [{\"content\": \"检查投影\", \"status\": \"pending\"}, {\"content\": \"写单测\", \"status\": \"pending\"}]}"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522266,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 175,
+       "outputTokens": 67,
+       "cacheReadTokens": 6400,
+       "cacheWriteTokens": 0,
+       "totalTokens": 6642
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522266,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "tool-calls"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "e80ea307-a628-44b4-a082-376b1576233b"
+        },
+        {
+         "type": "tool-call"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "tool/call",
+  "seq": 47,
+  "time": 1792326522274,
+  "data": {
+   "turn": 3,
+   "step": 1,
+   "callId": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+   "name": "todo_write",
+   "arguments": "{\"todos\": [{\"content\": \"检查投影\", \"status\": \"pending\"}, {\"content\": \"写单测\", \"status\": \"pending\"}]}"
+  }
+ },
+ {
+  "type": "todo/write",
+  "seq": 48,
+  "time": 1792326522291,
+  "data": {
+   "todos": [
+    {
+     "content": "检查投影",
+     "status": "pending"
+    },
+    {
+     "content": "写单测",
+     "status": "pending"
+    }
+   ]
+  }
+ },
+ {
+  "type": "tool/result",
+  "seq": 49,
+  "time": 1792326522296,
+  "data": {
+   "turn": 3,
+   "step": 1,
+   "message": {
+    "role": "tool",
+    "source": {
+     "kind": "tool",
+     "callId": "call_00_ET_6YYPZHhmzmFxKniNkrct3285"
+    },
+    "toolCallId": "call_00_ET_6YYPZHhmzmFxKniNkrct3285",
+    "content": [
+     {
+      "type": "text",
+      "text": "Updated todo list: 2 pending, 0 in progress, 0 completed."
+     }
+    ],
+    "isError": false,
+    "id": "be6c7e19-5c76-4a9d-8c51-092517995bfc"
+   }
+  },
+  "sourceEventSeqs": [
+   47
+  ],
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 50,
+  "time": 1792326522296,
+  "data": {
+   "turn": 3,
+   "step": 1
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 51,
+  "time": 1792326522316,
+  "data": {
+   "turn": 3,
+   "step": 2
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 52,
+  "time": 1792326522620,
+  "data": {
+   "sessionId": "session-1060d548-4d0b-458f-a801-5bd3d9322622",
+   "sessionFormatVersion": 4,
+   "throughSeq": 51
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 53,
+  "time": 1792326523093,
+  "data": {
+   "turn": 3,
+   "step": 2,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": ""
+     },
+     {
+      "type": "text",
+      "text": "已用 todo 工具写下两条待办：「检查投影」和「写单测」，当前均为 pending 状态。"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "ff7e57ba-4361-4332-a1b4-0b749b39f8c9"
+       },
+       {
+        "type": "text"
+       }
+      ]
+     }
+    },
+    "id": "18a113c1-903a-446c-b469-a28f0669e3e1"
+   },
+   "usage": {
+    "inputTokens": 142,
+    "outputTokens": 26,
+    "cacheReadTokens": 6528,
+    "cacheWriteTokens": 0,
+    "totalTokens": 6696
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326522626,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522997,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326522997,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "text"
+     }
+    },
+    {
+     "type": "text-chunks",
+     "time0": 1792326522997,
+     "index": 1,
+     "dt": [
+      11,
+      13,
+      0,
+      1,
+      0,
+      0,
+      0,
+      12,
+      1,
+      0,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      13,
+      0,
+      14,
+      0
+     ],
+     "texts": [
+      "已",
+      "用",
+      " todo",
+      " ",
+      "工具",
+      "写下",
+      "两条",
+      "待",
+      "办",
+      "：「",
+      "检查",
+      "投影",
+      "」",
+      "和",
+      "「",
+      "写",
+      "单",
+      "测",
+      "」，",
+      "当前",
+      "均为",
+      " pending",
+      " ",
+      "状态",
+      "。"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792326523089,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "text",
+       "text": "已用 todo 工具写下两条待办：「检查投影」和「写单测」，当前均为 pending 状态。"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326523089,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 142,
+       "outputTokens": 26,
+       "cacheReadTokens": 6528,
+       "cacheWriteTokens": 0,
+       "totalTokens": 6696
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792326523089,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "stop"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "ff7e57ba-4361-4332-a1b4-0b749b39f8c9"
+        },
+        {
+         "type": "text"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 54,
+  "time": 1792326523095,
+  "data": {
+   "turn": 3,
+   "step": 2
+  }
+ },
+ {
+  "type": "turn/end",
+  "seq": 55,
+  "time": 1792326523096,
+  "data": {
+   "turn": 3,
+   "reason": {
+    "kind": "completed"
+   }
+  }
+ }
+]

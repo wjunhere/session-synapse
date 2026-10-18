@@ -43,9 +43,14 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 ## 3. 数据
 
 - 会话文件：`~/.dsh/sessions/<cwd 编码>--/<session-id>/session.v4.jsonl.zstd`；cwd 编码 `B:\vibe_program` → `--B-vibe_program--`。
-- 首行是 header：`{"type":"session","version":4,"id","createdAt","cwd","parentSession","isSeeded","origin","delegationDepth","agentPreset"}`。
+- 首行是 header：`{"type":"session","version":4,"id","createdAt","cwd","parentSession","isSeeded","origin","delegationDepth","agentPreset"}`；事件信封是 `{type, seq, time(ms), data}`。
+- **上下文占用不用自己算**：token meter 的会话投影 `contextPressure`（`{pressureTokens, contextWindow, surfaceTokens, claim?}`）就是 DSH 自己界面上的那个数，`ctx.sessionQuery.observeSession(id, {projectionMode:'all'})` 一次拿到；adapter 原样交给 store（`SessionHistory.contextUsage`），store 优先用它、不再跑 pi 那套估算器。
 - 事件词表见 `@deepseek-ai/dsh-session/lib/types/known-event-types.js`（本版 58 种）。投影只认
-  `user/message`、`assistant/message`、`tool/call`、`tool/result`、`turn/start|end`、`step/start|end`、`todo/write`、`compaction/*`、`session/title`、`session/end-seed`（fork 切点）、`assistant/attempt`；其余不进卡片。
+  `user/message`、`assistant/message`、`tool/call`、`tool/result`、`turn/start|end`、`step/start|end`、`todo/write`、`compaction/summary`、`session/title`、`request/context`、`model/selection`；其余不进卡片（`assistant/attempt`、`session/end-seed`、`agent/inbox/spliced`、插件自有事件……）。
+- **注入的上下文也是 `user/message`**：同一个事件类型既承载人的提问（`data.source.kind === 'user'`），也承载 harness 注入的每一份快照（实测出现过的 kind：`runtime-context`、`agent-instructions`、`skill-catalog`、`time-context`、`tool-jobs`、`agent-message`、`subagent-settled`、`plugin`、`compact-checkpoint`）。只有 `user` 能变成卡片，否则画布会被系统提示塔满。
+- **投影条目的 id 必须是定宽的 `seq`**（`00000008`）：画布用 `sourceEntryId <= seedBoundary` 的**字符串**比较定位分支的父卡，不补零会让 `'100' < '12'`。
+- fork：header 的 `parentSession` + 观察到的 `inheritedEventCount`（**事件数**，不是 id）。投影器自己把前缀丢掉，并把最后一个被继承事件的定宽 id 当 `inheritedEntryCount` 返回 —— store 与画布两边比的都是 id。
+- 离线读日志用 `scripts/dsh-session-events.mjs`（多帧 zstd）；插件运行时不用它。
 - 画布数据文件：`$DSH_HOME/session-synapse/workspaces.json`（`$DSH_HOME` 优先于 `~/.dsh`）。
   与上游 dsh-synapse 的 `$DSH_HOME/synapse/workspaces.json` **分开**，免得两个插件抢同一份数据的写权；要搬布局用 `synapse import --from`。
 

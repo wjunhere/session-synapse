@@ -265,7 +265,13 @@ export class WorkspaceStore {
       }
       // Context usage is recomputed from the whole entry list after a full
       // replay; an append leaves it to `projectEntries`.
-      this.refreshContextUsage(thread, session.entries, session.contextWindow)
+      //
+      // A host that measures its own context (DSH's token meter) hands the
+      // figure over, and it wins: the estimator below is the pi path's answer to
+      // the same question, so running it here would replace a real measurement
+      // with an estimate.
+      if (session.contextUsage !== undefined) thread.contextUsage = session.contextUsage
+      else this.refreshContextUsage(thread, session.entries, session.contextWindow)
       return structuredClone(thread)
     }, { deferred: true })
   }

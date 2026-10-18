@@ -38,6 +38,12 @@
  * @property {number|null} [contextWindow]
  *   That model's context window, resolved through the model registry. Null when
  *   the model is unknown, in which case the canvas reports no ring.
+ * @property {{tokens: number, contextWindow: number, percent: number, estimated: boolean}|null} [contextUsage]
+ *   The host's OWN occupancy measurement, when it keeps one. DSH measures the
+ *   context it would send next (its token meter), and the canvas must show that
+ *   figure rather than an estimate — so when this is present the store uses it
+ *   verbatim and never runs the pi estimator. `undefined` (not `null`) means the
+ *   host has nothing to say and the estimate applies.
  *
  * @typedef {object} AdapterCapabilities
  *   What the CANVAS may do against this host — not what this process can do.

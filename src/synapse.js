@@ -106,6 +106,9 @@ export class Synapse {
           entries: history.entries,
           inheritedEntryCount: history.inheritedEntryCount,
           contextWindow: history.contextWindow,
+          // Hosts that measure their own occupancy report it here; the store
+          // uses it verbatim instead of running the pi estimator.
+          contextUsage: history.contextUsage,
         },
         // Always a full replay: the inherited-prefix cut is resolved inside
         // `projectSession` from `inheritedEntryCount` itself.

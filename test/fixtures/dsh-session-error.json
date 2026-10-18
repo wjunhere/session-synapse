@@ -1,0 +1,244 @@
+[
+ {
+  "type": "session",
+  "version": 4,
+  "id": "session-5c110ba3-d549-4a9e-8954-4688636a3599",
+  "createdAt": 1792326373671,
+  "cwd": "/probe/workspace",
+  "isSeeded": false,
+  "delegationDepth": 0
+ },
+ {
+  "type": "permission/preset",
+  "seq": 0,
+  "time": 1792326373679,
+  "data": {
+   "preset": "danger-full-access"
+  }
+ },
+ {
+  "type": "sandbox/mode",
+  "seq": 1,
+  "time": 1792326373680,
+  "data": {
+   "mode": "danger-full-access"
+  }
+ },
+ {
+  "type": "approval/policy",
+  "seq": 2,
+  "time": 1792326373680,
+  "data": {
+   "policy": "never"
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 3,
+  "time": 1792326373682,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "inserted": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "这一轮应该因为鉴权失败而报错。"
+      }
+     ],
+     "source": {
+      "kind": "user"
+     },
+     "role": "user",
+     "id": "043aa0be-c6fc-44b2-b079-d36f93140500"
+    }
+   ]
+  }
+ },
+ {
+  "type": "turn/start",
+  "seq": 4,
+  "time": 1792326373682,
+  "data": {
+   "turn": 1
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 5,
+  "time": 1792326373683,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "removedCount": 1,
+   "inserted": []
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 6,
+  "time": 1792326373722,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "user/message",
+  "seq": 8,
+  "time": 1792326373723,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "这一轮应该因为鉴权失败而报错。"
+    }
+   ],
+   "source": {
+    "kind": "user"
+   },
+   "role": "user",
+   "id": "043aa0be-c6fc-44b2-b079-d36f93140500"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "user/message",
+  "seq": 9,
+  "time": 1792326373724,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+    }
+   ],
+   "source": {
+    "kind": "runtime-context",
+    "form": "snapshot",
+    "sections": [
+     {
+      "name": "sandbox:policy",
+      "text": "Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations."
+     },
+     {
+      "name": "approval:policy",
+      "text": "Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."
+     }
+    ]
+   },
+   "role": "user",
+   "id": "f480f4dd-f135-42f3-a283-ceaa3fedd719"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "request/context",
+  "seq": 12,
+  "time": 1792326373725,
+  "data": {
+   "provider": "deepseek-official",
+   "model": "deepseek-flash",
+   "contextWindow": 1000000,
+   "systemPromptUpdate": "in-history"
+  }
+ },
+ {
+  "type": "session/title",
+  "seq": 13,
+  "time": 1792326373728,
+  "data": {
+   "title": "这一轮应该因为鉴权失败而报",
+   "messageSeqs": [
+    8
+   ],
+   "source": {
+    "kind": "fallback"
+   }
+  }
+ },
+ {
+  "type": "session/title-llm-request",
+  "seq": 14,
+  "time": 1792326373728,
+  "data": {
+   "titleProvider": "session-title-first-prompt-llm",
+   "messageSeqs": [
+    8
+   ],
+   "route": {
+    "provider": "deepseek-official",
+    "model": "deepseek-flash"
+   },
+   "system": "Create a concise title for an AI coding-assistant session from the supplied human messages.\nReturn only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.\nUse the language of the messages.\nAim for about 5 words in non-CJK languages or 10 CJK characters.",
+   "messages": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "Generate the session title from this JSON array of human messages:\n[{\"seq\":8,\"text\":\"这一轮应该因为鉴权失败而报错。\"}]"
+      }
+     ],
+     "source": {
+      "kind": "dsh-session-title-llm"
+     },
+     "role": "user",
+     "id": "435ad00e-07a6-4d5e-b93e-d243dc2e5487"
+    }
+   ],
+   "maxTokens": 64
+  }
+ },
+ {
+  "type": "assistant/attempt",
+  "seq": 15,
+  "time": 1792326374031,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792326374031,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "error",
+       "failure": {
+        "message": "Authentication Fails, Your api key: ****-key is invalid (request_id: 50d32102-f43d-4215-9412-61e16dfe4405)",
+        "code": "AUTH",
+        "status": 401
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "type": "step/end",
+  "seq": 16,
+  "time": 1792326374032,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "turn/end",
+  "seq": 17,
+  "time": 1792326374032,
+  "data": {
+   "turn": 1,
+   "reason": {
+    "kind": "error",
+    "error": {
+     "message": "Authentication Fails, Your api key: ****-key is invalid (request_id: 50d32102-f43d-4215-9412-61e16dfe4405)",
+     "code": "AUTH",
+     "status": 401
+    }
+   }
+  }
+ }
+]
