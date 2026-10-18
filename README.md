@@ -153,7 +153,7 @@ node scripts/repair-workspaces.mjs ~/.pi/agent/synapse/workspaces.json
 
 它按 `callId` 去除 thread 内的重复工具记录，并保留 thread id（否则浏览器里保存的卡片位置会失效）。修复前请先停掉服务并备份。
 
-架构与设计决策见 [docs/design.md](docs/design.md)，开发须知见 [AGENTS.md](AGENTS.md)。
+架构与设计决策见 [docs/](docs/README.md)（按主题分篇，从索引进），开发须知见 [AGENTS.md](AGENTS.md)。
 
 ## 许可证
 
