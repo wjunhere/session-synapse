@@ -176,13 +176,17 @@ try {
     const bar = document.querySelector('.synapse-switch')
     const corner = document.querySelector('[class*="_headerCorner"]')
     const header = corner?.closest('header')
+    const centre = document.querySelector('[class*="_centerCol"]')
+    const overlay = document.querySelector('.synapse-overlay')
     const rect = bar?.getBoundingClientRect()
     const hit = rect === undefined ? null : document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
     return {
       inCorner: bar?.parentElement === corner && corner !== null,
       firstChild: (corner?.firstElementChild?.className ?? '').toString().includes('synapse-switch'),
-      overlayTop: getComputedStyle(document.querySelector('.synapse-overlay')).top,
+      overlay: { top: getComputedStyle(overlay).top, left: getComputedStyle(overlay).left, width: getComputedStyle(overlay).width },
       headerBottom: `${Math.round(header?.getBoundingClientRect().bottom ?? -1)}px`,
+      centre: { left: `${Math.round(centre?.getBoundingClientRect().left ?? -1)}px`, width: `${Math.round(centre?.getBoundingClientRect().width ?? -1)}px` },
+      sidebarVisible: document.querySelector('[class*="_sidebarCol"]') !== null,
       visible: rect !== undefined && rect.width > 0 && rect.height > 0,
       hitIsBar: hit?.closest('.synapse-switch') !== null && hit?.closest('.synapse-switch') !== undefined,
     }
@@ -190,7 +194,8 @@ try {
   const dialogPlacement = await placement()
   check('切换条落在宿主头部的操作区里', dialogPlacement.inCorner === true, JSON.stringify(dialogPlacement))
   check('排在操作区最前（紧邻文件管理器那排按钮）', dialogPlacement.firstChild === true)
-  check('画布从头部下方开始（头部在地图视图里仍可见）', dialogPlacement.overlayTop === dialogPlacement.headerBottom, `overlay=${dialogPlacement.overlayTop} header=${dialogPlacement.headerBottom}`)
+  check('画布从头部下方开始（头部在地图视图里仍可见）', dialogPlacement.overlay.top === dialogPlacement.headerBottom, `overlay=${dialogPlacement.overlay.top} header=${dialogPlacement.headerBottom}`)
+  check('画布只占中间那一列（宿主侧栏留在旁边）', dialogPlacement.overlay.left === dialogPlacement.centre.left && dialogPlacement.overlay.width === dialogPlacement.centre.width && dialogPlacement.sidebarVisible, `overlay=${JSON.stringify(dialogPlacement.overlay)} centre=${JSON.stringify(dialogPlacement.centre)}`)
 
   const mapPlacement = await placement()
   check('地图视图下切换条仍可见且没被画布盖住', mapPlacement.visible && mapPlacement.hitIsBar, JSON.stringify(mapPlacement))

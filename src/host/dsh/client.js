@@ -25,6 +25,11 @@
  *   - the overlay starts BELOW that header, so the header (and the switch bar
  *     inside it) stays visible and clickable in map view — a bar inside a header
  *     the canvas covers would be unreachable exactly when it is needed;
+ *   - the overlay is inset to the frame's CENTRE column, so the host's own
+ *     sidebar and header stay in place and switching views only swaps the
+ *     content. Covering the sidebar too left the host's sidebar top block
+ *     (brand, New Session) sticking out above the canvas's own sidebar — two
+ *     stacked sidebars, which reads as a second app grafted into the window;
  *   - when the corner is absent (a fullscreen frame, a future layout), the bar
  *     falls back to its own container as a floating pill and the reason is
  *     logged — a placement, never a feature, degrades.
@@ -44,9 +49,12 @@ loader.load({
     const CANVAS_URL = '/synapse/'
     // The header's action corner, by CSS-module local name.
     const HEADER_CORNER = '[class*="_headerCorner"]'
-    // How far down the canvas starts: the header's own bottom edge, published as
-    // a custom property so the overlay's `inset` can read it.
-    const HEADER_BOTTOM_VAR = '--synapse-header-bottom'
+    // The frame's centre column: where the canvas belongs, so the host keeps its
+    // own sidebar beside it instead of being half covered.
+    const CENTRE_COLUMN = '[class*="_centerCol"]'
+    // Where the canvas starts, published as custom properties so the overlay's
+    // geometry can read them.
+    const FRAME_VARS = { top: '--synapse-top', left: '--synapse-left', width: '--synapse-width' }
 
     module.exports.inject = ['sessions']
     module.exports.apply = (/** @type {any} */ ctx) => {
@@ -63,8 +71,9 @@ loader.load({
         .synapse-switch button:focus-visible{outline:2px solid var(--dsw-alias-border-l3,#111111);outline-offset:2px}
         /* No corner to sit in: back to a floating pill above everything. */
         .synapse-host > .synapse-switch{position:fixed;z-index:400;top:calc(var(--dsh-frame-chrome-top, 0px) + 12px);left:50%;transform:translateX(-50%);height:auto;gap:2px;border:1px solid var(--dsw-alias-border-l2,#eaeaea);border-radius:7px;background:var(--dsw-alias-bg-base,rgba(255,255,255,.94));padding:3px;backdrop-filter:blur(10px)}
-        /* Starts below the host header so the header stays usable in map view. */
-        .synapse-overlay{position:fixed;z-index:300;inset:var(${HEADER_BOTTOM_VAR}, 0px) 0 0 0;background:var(--dsw-alias-bg-base,#f7f6f3)}
+        /* Starts below the host header and covers the centre column only, so the
+           host's sidebar stays usable beside the canvas in both views. */
+        .synapse-overlay{position:fixed;z-index:300;top:var(${FRAME_VARS.top}, 0px);left:var(${FRAME_VARS.left}, 0px);width:var(${FRAME_VARS.width}, 100vw);bottom:0;background:var(--dsw-alias-bg-base,#f7f6f3)}
         .synapse-overlay[hidden]{display:none}
         .synapse-overlay iframe{display:block;width:100%;height:100%;border:0}
       `
@@ -91,26 +100,37 @@ loader.load({
 
       // ---------- placement ----------
       /**
-       * Move the bar into the header corner, and keep the overlay starting below
-       * that header.
+       * Move the bar into the header corner, and keep the overlay in the frame's
+       * centre column below that header.
        *
        * Called from a MutationObserver as well as at startup, because React owns
-       * that corner: a session switch or a theme change re-renders the header and
-       * can drop a node it did not create. The check is cheap and idempotent —
-       * one query and one rect read when nothing moved.
+       * that frame: a session switch, a theme change or a sidebar toggle
+       * re-renders it and can drop a node it did not create. The check is cheap
+       * and idempotent — one query and two rect reads when nothing moved.
        */
       let placementFrame = 0
       function syncPlacement() {
         const corner = document.querySelector(HEADER_CORNER)
         if (corner === null) {
           if (switchBar.parentElement !== host) host.prepend(switchBar)
-          document.documentElement.style.setProperty(HEADER_BOTTOM_VAR, '0px')
+        } else if (switchBar.parentElement !== corner) {
+          corner.prepend(switchBar)
+        }
+        const root = document.documentElement.style
+        const header = corner?.closest('header') ?? null
+        const top = header === null ? 0 : Math.round(header.getBoundingClientRect().bottom)
+        root.setProperty(FRAME_VARS.top, `${top}px`)
+        // The centre column is the frame's own seat for the main panel; without
+        // it (a layout we do not know) the canvas takes the full width.
+        const centre = document.querySelector(CENTRE_COLUMN)
+        if (centre === null) {
+          root.setProperty(FRAME_VARS.left, '0px')
+          root.setProperty(FRAME_VARS.width, '100vw')
           return
         }
-        if (switchBar.parentElement !== corner) corner.prepend(switchBar)
-        const header = corner.closest('header') ?? corner
-        const bottom = Math.round(header.getBoundingClientRect().bottom)
-        if (bottom > 0) document.documentElement.style.setProperty(HEADER_BOTTOM_VAR, `${bottom}px`)
+        const rect = centre.getBoundingClientRect()
+        root.setProperty(FRAME_VARS.left, `${Math.round(rect.left)}px`)
+        root.setProperty(FRAME_VARS.width, `${Math.round(rect.width)}px`)
       }
       const schedulePlacement = () => {
         if (placementFrame !== 0) return
@@ -294,7 +314,7 @@ loader.load({
         for (const [id, record] of [...live]) detachLive(id, record)
         host.remove()
         style.remove()
-        document.documentElement.style.removeProperty(HEADER_BOTTOM_VAR)
+        for (const name of Object.values(FRAME_VARS)) document.documentElement.style.removeProperty(name)
       }, 'synapse: view switch')
 
       syncPlacement()
