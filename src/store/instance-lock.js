@@ -218,12 +218,18 @@ function holderLiveness(holder, isOurs) {
  * file, which is exactly what this lock exists to prevent. Measured here: the
  * canvas on port 30142 had been up 23 hours, one hour from that state.
  *
+ * The liveness answer is an ARGUMENT rather than a call, because that is the one
+ * thing a test cannot stage portably: on Windows it comes from `wmic`, which can
+ * be missing, but on Linux it comes from `/proc/<pid>/cmdline`, which needs no
+ * PATH and only fails for another user's process. Exported for the same reason
+ * `commandLineLooksLikeOurs` is: the three-way contract is worth asserting
+ * directly (see `test/instance-lock.test.js`).
+ *
  * @param {{ pid: number }|null} holder
- * @param {{ staleAfterMs: number, mtimeMs: number|null, isOurs?: (command: string) => boolean }} age
+ * @param {{ staleAfterMs: number, mtimeMs: number|null, liveness: boolean|null }} state
  */
-function lockIsStale(holder, { staleAfterMs, mtimeMs, isOurs }) {
+export function lockIsStale(holder, { staleAfterMs, mtimeMs, liveness }) {
   if (holder === null) return true
-  const liveness = holderLiveness(holder, isOurs)
   if (liveness === false) return true
   // Confirmed alive and ours: never steal it, however old the file looks.
   if (liveness === true) return false
@@ -289,7 +295,10 @@ export async function acquireInstanceLock(dataFile, { port = null, force = false
   let tookOver = false
   if (!(await claim())) {
     const { holder, mtimeMs } = await readLock(lockPath)
-    if (lockIsStale(holder, { staleAfterMs, mtimeMs, isOurs })) {
+    // The holder may be unreadable (a torn file), in which case there is nothing
+    // to ask about liveness — `lockIsStale` reclaims it on the holder alone.
+    const liveness = holder === null ? null : holderLiveness(holder, isOurs)
+    if (lockIsStale(holder, { staleAfterMs, mtimeMs, liveness })) {
       // The owner is gone (a killed instance always leaves its lock behind on
       // Windows) or the lock is too old to trust: reclaim it.
       tookOver = true

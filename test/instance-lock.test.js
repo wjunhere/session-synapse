@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { acquireInstanceLock, InstanceLockError } from '../src/store/instance-lock.js'
+import { acquireInstanceLock, InstanceLockError, lockIsStale } from '../src/store/instance-lock.js'
 
 async function withDir(run) {
   const dir = await mkdtemp(join(tmpdir(), 'synapse-lock-'))
@@ -103,12 +103,19 @@ test('a live holder is not reclaimed just because its lock looks old', async () 
   })
 })
 
-test('an unreadable command line still lets age reclaim the lock', async () => {
+test('an unreadable command line still lets age reclaim the lock (Windows only)', { skip: process.platform !== 'win32' }, async () => {
   // The backstop the age bound exists for: when the holder's command line cannot
   // be read, "that PID exists" proves nothing (Windows recycles PIDs), so an
   // ancient lock must be reclaimable or the user is locked out forever.
   // Simulated by taking `wmic` off PATH — the real state of a machine where the
   // command line is unreadable, and what Windows 11 24H2 will ship by default.
+  //
+  // Windows only, and not by choice: on Linux the command line comes from
+  // `/proc/<pid>/cmdline`, which needs no PATH and cannot be made unreadable from
+  // a test (the real failure there is another user's process → EACCES). Blanking
+  // PATH there changed nothing, the holder still read as ours, and this test
+  // failed on CI for two runs before the simulation was understood. The portable
+  // half of it is the decision table below.
   await withDir(async (_dir, dataFile) => {
     const holder = spawnFakeHolder()
     const path = process.env.PATH
@@ -124,6 +131,25 @@ test('an unreadable command line still lets age reclaim the lock', async () => {
       await holder.stop()
     }
   })
+})
+
+test('the staleness decision is three-way: gone, ours, and unknown', () => {
+  // The same contract, asserted where no OS can change the answer (this is the
+  // half that runs on CI). Getting any of these wrong is a data-corruption bug in
+  // one direction or a lockout in the other:
+  //   - `true`  → a live instance would lose its lock to the next start (two
+  //               writers, which is what the lock exists to prevent);
+  //   - `false` → an ancient lock would be stolen from a live holder;
+  //   - `null`  → the age bound is the only way out of a recycled PID.
+  const old = { staleAfterMs: 1000, mtimeMs: Date.now() - 60_000 }
+  const holder = { pid: 4242 }
+  assert.equal(lockIsStale(null, { ...old, liveness: null }), true, 'no holder at all is free')
+  assert.equal(lockIsStale(holder, { ...old, liveness: false }), true, 'a gone owner is reclaimable')
+  assert.equal(lockIsStale(holder, { ...old, liveness: true }), false, 'a confirmed live owner is never aged out')
+  assert.equal(lockIsStale(holder, { ...old, liveness: null }), true, 'an unknown owner is reclaimed once the lock is old')
+  assert.equal(lockIsStale(holder, { ...old, mtimeMs: Date.now(), liveness: null }), false, 'a fresh lock is kept even when unknown')
+  assert.equal(lockIsStale(holder, { ...old, mtimeMs: null, liveness: null }), false, 'an unreadable mtime reads as no age (never steal on a failed stat)')
+  assert.equal(lockIsStale(holder, { ...old, staleAfterMs: 0, liveness: null }), false, 'the bound can be switched off')
 })
 
 test('the heartbeat refreshes the lock so a long-running instance stays protected', async () => {

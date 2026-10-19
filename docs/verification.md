@@ -26,7 +26,7 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 137 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
+npm test                                  # 138 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 实例锁 14 + pi-web 动作 15 + 会话对账 4）
 npm run verify                            # 全套回归：起服务 → 24 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
 npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），44 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
@@ -102,6 +102,15 @@ run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户�
    线程删掉（`DELETE /synapse/api/threads/:id`，store 会把空掉的投影工作区一并移除，并记住这条会话
    不该再被投影），这样后续套件看到的仍是原来那个「最近活跃」的工作区；按标题子串选工作区这件事本身
    仍然很脆，改套件时注意。
+4. **CI 上的红是测试的模拟不跨平台，不是产品错（公开仓库后的第一次 CI 就红在这里）。**
+   `instance-lock.test.js` 里那条「命令读不到时用年龄回收锁」用 `PATH=''` 把 `wmic` 拿走 —— 那是
+   Windows 的真实状态，但 Linux 读命令行走的是 `/proc/<pid>/cmdline`，不需要 PATH，所以命令照样读到了：
+   holder 的 argv 里有字面 `synapse` → 判定「是我们自己的」→ 拒绝回收 → 断言失败。修法两半：① 那条
+   保留成 Windows-only（`{ skip: process.platform !== 'win32' }`，在 Linux 上显式 skipped 而不是红）；
+   ② 把三向决策本身提出来当纯函数测（`lockIsStale(holder, { staleAfterMs, mtimeMs, liveness })`，liveness
+   改成入参），这样「已死 / 是我们 / 无法确认」三种答案在任何平台都能断言 —— 而这三种答案搞错的代价
+   分别是「两个写者」与「永久锁死」，本来就该直接测。复现平台差异用 WSL：
+   `wsl.exe -e bash -lc "cd /mnt/b/vibe_program/session-synapse && node --test test/*.test.js"`。
 
 ### 一个被顺便修正的测试前提
 

@@ -160,7 +160,7 @@ synapse: 已有实例正在使用这份画布数据（PID 27948，端口 30142�
 ```bash
 npm install
 npm run check                    # 静态类型检查（基线 0 问题）
-npm test                          # 137 个单测，不需要启动服务
+npm test                          # 138 个单测，不需要启动服务
 
 # 全套端到端回归：需要 pi-web 已在 30100 运行（脚本不替你启停它）
 npm run verify                    # 自己起服务、跑完 24 个套件、清理、汇总成一张表
