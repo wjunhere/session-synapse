@@ -38,3 +38,7 @@ export const HOST_ARCHIVE_ICON = ICON('<rect x="2.5" y="3" width="11" height="3.
 const EYE_BODY = '<path d="M1.5 8s2.6-4.25 6.5-4.25S14.5 8 14.5 8s-2.6 4.25-6.5 4.25S1.5 8 1.5 8Z"/>'
 export const EYE_ICON = ICON(`${EYE_BODY}<circle cx="8" cy="8" r="2"/>`)
 export const EYE_OFF_ICON = ICON(`${EYE_BODY}<path d="M2.5 2.5 13.5 13.5"/>`)
+// The settings gear: a ring plus six teeth (a path-only `ICON_PATHS` entry
+// cannot draw the ring, and a filled ring would not match the stroke language).
+const GEAR_BODY = '<circle cx="8" cy="8" r="2.6"/><path d="M11.8 8h1.8M2.4 8h1.8M10.1 11.6 10.8 12.9M5.2 12.9 5.9 11.6M5.9 4.4 5.2 3.1M10.8 3.1 10.1 4.4"/>'
+export const GEAR_ICON = ICON(GEAR_BODY)

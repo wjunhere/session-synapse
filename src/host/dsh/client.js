@@ -15,31 +15,39 @@
  *   - `document.body` may not exist yet when `apply` runs (the pi-web injection
  *     path hit the same floor), hence the DOMContentLoaded fallback.
  *
- * WHERE THE SWITCH BAR LIVES: in the header's own action corner — the row that
- * holds “open in application”, the overflow menu and the panel toggle — so it
- * sits beside them instead of floating over the session title. DSH publishes no
- * slot for that corner, so the bar is moved into it by DOM, matched on the
- * CSS-module LOCAL name (`*_headerCorner`, stable across builds while the hash
- * prefix is not). Two consequences worth stating:
+ * WHERE THE MAP LIVES: as a `conversation.view` slot entry — the same mechanism
+ * 对话 / 轨迹 / 提示词 use. The host renders the tab, owns which one is active,
+ * remembers it per session and switches on click, so there is no button of ours
+ * to re-inject after a re-render. Two consequences worth stating:
  *
- *   - the overlay starts BELOW that header, so the header (and the switch bar
- *     inside it) stays visible and clickable in map view — a bar inside a header
- *     the canvas covers would be unreachable exactly when it is needed;
- *   - the overlay is inset to the frame's CENTRE column, so the host's own
- *     sidebar and header stay in place and switching views only swaps the
- *     content. Covering the sidebar too left the host's sidebar top block
- *     (brand, New Session) sticking out above the canvas's own sidebar — two
- *     stacked sidebars, which reads as a second app grafted into the window;
- *   - when the corner is absent (a fullscreen frame, a future layout), the bar
- *     falls back to its own container as a floating pill and the reason is
- *     logged — a placement, never a feature, degrades.
+ *   - our component is mounted exactly while the map tab is active, so MOUNTING
+ *     shows the canvas and UNMOUNTING hides it: the host's tab state is the only
+ *     source of truth (Escape and "open this session" ask the host to activate
+ *     the chat view instead of hiding the overlay behind its back);
+ *   - the canvas stays an IFRAME in a fixed overlay positioned over the
+ *     conversation area (below the header, the frame's centre column), not a
+ *     child of the view: re-parenting an iframe reloads it, so mounting the
+ *     canvas as the view body would reload the whole page — camera, selection,
+ *     module graph — on every flip between 对话 and 会话地图.
+ *
+ * The old switch bar survives for the two cases a tab cannot cover: a host that
+ * never declares `conversation.view`, and the welcome screen (no session → no
+ * tab strip), where the map would otherwise be unreachable. It keeps its own
+ * fallback placement as a floating pill for the same reason as before.
  */
 // `__ModuleLoader__` is the application's own bundle registrant, not a DOM global;
 // the cast states that this file only makes sense inside that runtime.
-const loader = /** @type {{ load: (definition: { id: string, factory: () => any }) => void }} */ (/** @type {any} */ (window).__ModuleLoader__)
+const loader = /** @type {{ load: (definition: { id: string, factory: (require: (name: string) => any) => any }) => void }} */ (/** @type {any} */ (window).__ModuleLoader__)
 loader.load({
   id: 'session-synapse',
-  factory: () => {
+  factory: require => {
+    // `react` is a platform seed of the application's module table (every
+    // official client bundle requires it); a view is a React component, so
+    // there is no way around it. The indirection is deliberate: this file is
+    // type-checked by `tsc`, which would otherwise try to RESOLVE the module
+    // name against node_modules and fail (the seed exists only in the browser).
+    const requireSeed = /** @type {(name: string) => any} */ (require)
+    const react = requireSeed('react')
     const module = /** @type {{ exports: any }} */ ({ exports: {} })
     // The canvas's own message namespace: `src/canvas/app.js` listens for
     // `synapse-host`, and `src/canvas/host.js` posts as `synapse`.
@@ -47,11 +55,22 @@ loader.load({
     const CHILD_SOURCE = 'synapse'
     const HOST_ID = 'synapse-host'
     const CANVAS_URL = '/synapse/'
-    // The header's action corner, by CSS-module local name.
+    // The conversation view we register. `order` places the tab after 对话 (0),
+    // 轨迹 (10) and 提示词 (20), which is where a map of the sessions belongs.
+    const VIEW_ID = 'synapse-map'
+    const VIEW_LABEL = '会话地图'
+    const VIEW_ORDER = 30
+    // The header's action corner, by CSS-module local name. Only used for the
+    // fallback switch bar (see the file header).
     const HEADER_CORNER = '[class*="_headerCorner"]'
     // The frame's centre column: where the canvas belongs, so the host keeps its
     // own sidebar beside it instead of being half covered.
     const CENTRE_COLUMN = '[class*="_centerCol"]'
+    // The host's conversation tab strip: the tab list that carries OUR tab. The
+    // app has more than one tablist (the sidebar has its own), so "any
+    // [role=tablist]" is not the question being asked — and the label we
+    // registered is what makes this one ours.
+    const TAB_LIST = '[role="tablist"]'
     // Where the canvas starts, published as custom properties so the overlay's
     // geometry can read them.
     const FRAME_VARS = { top: '--synapse-top', left: '--synapse-left', width: '--synapse-width' }
@@ -69,6 +88,8 @@ loader.load({
         .synapse-switch button:hover{background:var(--dsw-alias-interactive-bg-hover,#f4f3f0);color:var(--dsw-alias-label-primary,#111111)}
         .synapse-switch button.active{background:var(--dsw-alias-button-primary-fill,#111111);color:var(--dsw-alias-label-primary-foreground,#fff)}
         .synapse-switch button:focus-visible{outline:2px solid var(--dsw-alias-border-l3,#111111);outline-offset:2px}
+        /* The hidden attribute has to beat display:flex above. */
+        .synapse-switch[hidden]{display:none}
         /* No corner to sit in: back to a floating pill above everything. */
         .synapse-host > .synapse-switch{position:fixed;z-index:400;top:calc(var(--dsh-frame-chrome-top, 0px) + 12px);left:50%;transform:translateX(-50%);height:auto;gap:2px;border:1px solid var(--dsw-alias-border-l2,#eaeaea);border-radius:7px;background:var(--dsw-alias-bg-base,rgba(255,255,255,.94));padding:3px;backdrop-filter:blur(10px)}
         /* Starts below the host header and covers the centre column only, so the
@@ -76,6 +97,9 @@ loader.load({
         .synapse-overlay{position:fixed;z-index:300;top:var(${FRAME_VARS.top}, 0px);left:var(${FRAME_VARS.left}, 0px);width:var(${FRAME_VARS.width}, 100vw);bottom:0;background:var(--dsw-alias-bg-base,#f7f6f3)}
         .synapse-overlay[hidden]{display:none}
         .synapse-overlay iframe{display:block;width:100%;height:100%;border:0}
+        /* The view body the host renders for us: an anchor to measure, never the
+           canvas itself (re-parenting the iframe would reload it). */
+        .synapse-view-anchor{width:100%;height:100%}
       `
       document.head.append(style)
 
@@ -100,22 +124,29 @@ loader.load({
 
       // ---------- placement ----------
       /**
-       * Move the bar into the header corner, and keep the overlay in the frame's
-       * centre column below that header.
+       * Move the FALLBACK bar into the header corner, and keep the overlay in the
+       * frame's centre column below that header.
        *
        * Called from a MutationObserver as well as at startup, because React owns
        * that frame: a session switch, a theme change or a sidebar toggle
        * re-renders it and can drop a node it did not create. The check is cheap
        * and idempotent — one query and two rect reads when nothing moved.
+       *
+       * With the map on its own tab the overlay only needs the second half: the
+       * conversation area IS the centre column below the header, so the same
+       * geometry covers exactly the area our view was mounted into.
        */
       let placementFrame = 0
       function syncPlacement() {
-        const corner = document.querySelector(HEADER_CORNER)
-        if (corner === null) {
-          if (switchBar.parentElement !== host) host.prepend(switchBar)
-        } else if (switchBar.parentElement !== corner) {
-          corner.prepend(switchBar)
+        if (!switchBar.hidden) {
+          const corner = document.querySelector(HEADER_CORNER)
+          if (corner === null) {
+            if (switchBar.parentElement !== host) host.prepend(switchBar)
+          } else if (switchBar.parentElement !== corner) {
+            corner.prepend(switchBar)
+          }
         }
+        const corner = document.querySelector(HEADER_CORNER)
         const root = document.documentElement.style
         const header = corner?.closest('header') ?? null
         const top = header === null ? 0 : Math.round(header.getBoundingClientRect().bottom)
@@ -134,13 +165,18 @@ loader.load({
       }
       const schedulePlacement = () => {
         if (placementFrame !== 0) return
-        placementFrame = window.requestAnimationFrame(() => { placementFrame = 0; syncPlacement() })
+        placementFrame = window.requestAnimationFrame(() => { placementFrame = 0; syncPlacement(); updateSwitchVisibility(); syncMapWithHost() })
       }
       const placementObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedulePlacement)
       placementObserver?.observe(document.body ?? document.documentElement, { childList: true, subtree: true })
       window.addEventListener('resize', schedulePlacement)
 
       // ---------- view switching ----------
+      //
+      // The host's tab is the source of truth: mounting the view shows the
+      // canvas, unmounting hides it. `show()` therefore only ever moves the
+      // overlay and marks the fallback bar — asking the host to change tabs is a
+      // separate act (`activateChat`), never something this file fakes.
       let view = 'dialog'
       function show(next) {
         view = next
@@ -150,15 +186,167 @@ loader.load({
           button.classList.toggle('active', active)
           button.setAttribute('aria-pressed', String(active))
         }
+        if (next === 'map') schedulePlacement()
       }
       const onSwitchClick = event => {
         const button = event.target instanceof Element ? event.target.closest('button') : null
         if (button === null) return
-        show(button.dataset.view)
+        if (button.dataset.view === 'dialog') return void leaveMap()
+        show('map')
       }
       switchBar.addEventListener('click', onSwitchClick)
-      const onKeyDown = event => { if (event.key === 'Escape' && view === 'map') show('dialog') }
+
+      /**
+       * Ask the host to make the chat view active for one session.
+       *
+       * This is how the map is LEFT whenever a tab strip exists: hiding our
+       * overlay while the map tab stayed active would leave an empty view behind
+       * it. Returns false when there is no tab to switch (or no session), which
+       * is the signal to fall back to hiding the overlay alone.
+       */
+      function activateChat(sessionId) {
+        const conversation = sessionId === null ? undefined : ctx.get('uiConversation')
+        if (conversation === undefined || typeof sessionId !== 'string') return false
+        try {
+          conversation.binding(sessionId).activate('chat')
+          return true
+        } catch {
+          // The session can be gone between the click and the call; the caller
+          // hides the overlay instead, and the tab strip corrects itself.
+          return false
+        }
+      }
+
+      /**
+       * Leave the map: back to the conversation when the host owns the tabs.
+       *
+       * Only a host that actually RENDERS the tab strip owns the map's
+       * visibility: the welcome screen retains a session (so `activateChat`
+       * happily succeeds) but has no tabs to switch, and hiding the overlay is
+       * then this file's job.
+       */
+      function leaveMap() {
+        const hostOwnsTabs = conversationTabList() !== null
+        if (!hostOwnsTabs || !activateChat(lastSessionId)) show('dialog')
+      }
+
+      const onKeyDown = event => { if (event.key === 'Escape' && view === 'map') leaveMap() }
       document.addEventListener('keydown', onKeyDown)
+
+      // ---------- the map as one of the host's conversation views ----------
+      //
+      // Registering a view is how 对话 / 轨迹 / 提示词 themselves get their tab:
+      // the host renders the tab strip from `slots.entries('conversation.view')`,
+      // keeps the active one per session, and mounts that view's component in
+      // the conversation area. So there is nothing to inject and nothing to keep
+      // in sync — the two effects inside `MapView` are the whole integration.
+      //
+      // `slots` arrives with the renderer plugin, which may apply after us: the
+      // wait is `ctx.inject`, and a host that never provides it simply keeps the
+      // switch bar below.
+      let viewRegistered = false
+      // Whether the host currently has our view mounted. With a tab strip that
+      // is the ONLY thing that may show the canvas (see the effect below), and
+      // the welcome screen's pill is the only other source of `view === 'map'`.
+      let mapViewMounted = false
+      /** The tab strip our own tab lives in, or null when none is rendered. */
+      function conversationTabList() {
+        for (const list of document.querySelectorAll(TAB_LIST)) {
+          const tabs = [...list.querySelectorAll('[role="tab"]')]
+          if (tabs.some(tab => (tab.textContent ?? '').trim() === VIEW_LABEL)) return list
+        }
+        return null
+      }
+
+      /**
+       * What the host's tab strip says: `true` the map is the active view,
+       * `false` another one is, `null` there is no strip to ask.
+       *
+       * The host marks the active tab with `aria-selected` and/or an
+       * `*_tabActive` class (CSS-module hash prefixes change per build, the local
+       * name does not), so both are accepted.
+       */
+      function hostShowsMap() {
+        const list = conversationTabList()
+        if (list === null) return null
+        const tabs = [...list.querySelectorAll('[role="tab"]')]
+        const active = tabs.find(tab => tab.getAttribute('aria-selected') === 'true') ?? tabs.find(tab => /Active/.test(tab.className))
+        if (active === undefined) return null
+        return (active.textContent ?? '').trim() === VIEW_LABEL
+      }
+
+      /**
+       * Keep the fallback bar in step with the host.
+       *
+       * The tab strip is a DOM fact, not a session-list fact: the welcome screen
+       * retains a session for its own composer but renders no tabs (measured), so
+       * a current session id is NOT evidence that a tab exists. With a tab strip
+       * the bar is hidden — the tab REPLACED it, not duplicated it — and without
+       * one it is the only way in, as a floating pill (that screen has no header
+       * corner either).
+       */
+      function updateSwitchVisibility() {
+        const needed = !viewRegistered || conversationTabList() === null
+        if (switchBar.hidden === !needed) return
+        switchBar.hidden = !needed
+        if (needed) schedulePlacement()
+      }
+
+      /**
+       * Follow the host when it switches away from the map.
+       *
+       * Clicking 对话 is the host's own tab switch, so nothing unmounts and the
+       * view's cleanup never runs — which matters for an overlay the welcome
+       * screen's pill opened (our view was never mounted at all).
+       */
+      function syncMapWithHost() {
+        if (view === 'map' && !mapViewMounted && hostShowsMap() === false) show('dialog')
+      }
+
+      /**
+       * The view body the host renders while the map tab is active.
+       *
+       * It renders an anchor rather than the canvas itself (see the file header:
+       * re-parenting the iframe would reload it), and treats mount/unmount as the
+       * host's answer to "is the map the active view".
+       */
+      function MapView() {
+        const anchor = react.useRef(null)
+        react.useEffect(() => {
+          mapViewMounted = true
+          show('map')
+          schedulePlacement()
+          const node = anchor.current
+          if (node === null || typeof ResizeObserver === 'undefined') return () => { mapViewMounted = false; show('dialog') }
+          // The conversation area resizes with the host's own panels, so the
+          // overlay follows the anchor rather than only the window.
+          const observer = new ResizeObserver(schedulePlacement)
+          observer.observe(node)
+          return () => {
+            observer.disconnect()
+            mapViewMounted = false
+            show('dialog')
+          }
+        }, [])
+        return react.createElement('div', { className: 'synapse-view-anchor', ref: anchor })
+      }
+
+      ctx.inject(['slots'], scope => scope.slots.inject('conversation.view', () => {
+        const dispose = scope.slots.register({
+          name: 'conversation.view',
+          id: VIEW_ID,
+          order: VIEW_ORDER,
+          label: () => VIEW_LABEL,
+          inject: () => ({}),
+        }, MapView)
+        viewRegistered = true
+        updateSwitchVisibility()
+        return () => {
+          viewRegistered = false
+          dispose()
+          updateSwitchVisibility()
+        }
+      }))
 
       // ---------- the host's current session ----------
       // The Main view's own reference count is the client's current-session
@@ -178,6 +366,10 @@ loader.load({
         if (id === lastSessionId) return
         lastSessionId = id
         send('synapse:current-session', { session: id === null ? null : { id } })
+        // …and the map's visibility becomes the host's business: an overlay the
+        // user opened from the welcome-screen pill must not stay on top of the
+        // conversation that just appeared.
+        syncMapWithHost()
       }
 
       // ---------- theme + the host's design values ----------
@@ -318,7 +510,10 @@ loader.load({
           if (workspace === undefined) return send('synapse:bridge-error', { message: '宿主不支持切换会话' })
           try {
             workspace.openSession(data.sessionId)
-            show('dialog')
+            // "Open this session" means its CONVERSATION: with the map on its own
+            // tab the host would otherwise stay on whatever view that session
+            // last had — the map — which is not what the button promises.
+            activateChat(data.sessionId)
           } catch {
             send('synapse:bridge-error', { message: '关联的 DSH 会话已不可用' })
           }
@@ -346,6 +541,8 @@ loader.load({
       }, 'synapse: view switch')
 
       syncPlacement()
+      updateSwitchVisibility()
+      syncMapWithHost()
       postTheme()
       postCurrent()
       syncLive()

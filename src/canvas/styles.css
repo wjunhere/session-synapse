@@ -229,6 +229,49 @@ kbd {
 .canvas-controls button svg { width: 14px; height: 14px; flex: none; }
 .canvas-controls span { min-width: 46px; color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; text-align: center; }
 
+/* ─────────────────────────── settings panel ─────────────────────────── */
+/* The panel is anchored to the bottom-right cluster's own corner: it is opened
+   from there, it changes what that corner's canvas looks like, and it must not
+   cover the cards being adjusted. A dialog (not a route) because every control
+   previews live. */
+.settings-panel {
+  position: absolute;
+  z-index: 6;
+  right: 18px;
+  bottom: 62px;
+  display: grid;
+  width: min(340px, calc(100% - 36px));
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raise);
+  padding: 12px 14px 14px;
+}
+.settings-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.settings-head strong { color: var(--ink); font-size: 13px; font-weight: 600; }
+.settings-head button { display: grid; width: 24px; min-height: 24px; place-items: center; border: 0; background: transparent; padding: 0; color: var(--ink-3); }
+.settings-head button:hover { background: var(--surface-fill); color: var(--ink); }
+.settings-head button svg { width: 13px; height: 13px; }
+.settings-body { display: grid; gap: 12px; }
+.settings-row { display: grid; grid-template-columns: 68px minmax(0, 1fr) 44px; align-items: center; gap: 10px; }
+.settings-row-label { color: var(--ink-2); font-size: 12px; }
+.settings-row-value { color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; text-align: right; }
+.settings-row input[type="range"] { width: 100%; accent-color: var(--ink); }
+.settings-row .settings-choices { display: flex; grid-column: 2 / span 2; flex-wrap: wrap; gap: 5px; }
+.settings-choice {
+  min-height: 24px;
+  border-color: var(--line);
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  padding: 0 9px;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+.settings-choice:hover { border-color: var(--ink-3); background: var(--surface-fill); color: var(--ink); }
+.settings-choice.is-on { border-color: var(--violet-line); background: var(--violet-bg); color: var(--violet); }
+.settings-note { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
+
 /* ─────────────────── embedded in a host's own shell ─────────────────── */
 /* A host that already shows a sidebar and a header of its own gets a canvas
  * with no chrome at all: the map IS the view. Three consequences, all needed to
@@ -549,8 +592,12 @@ html[data-embedded] {
 .thread-card {
   position: absolute;
   display: grid;
-  width: 310px;
-  height: 276px;
+  /* The size is a SETTING: the layout math reads the same numbers through
+     `cardWidth()`/`cardHeight()`, so the box the JS positions and the box the
+     CSS draws always agree. The literals are the 100% case, for a canvas whose
+     boot has not published the variables yet. */
+  width: var(--card-w, 310px);
+  height: var(--card-h, 276px);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -668,7 +715,8 @@ html[data-embedded] {
   background: transparent;
   padding: 0;
   color: var(--ink);
-  font-size: 13px;
+  /* The card's own type scale: one variable, set by the settings panel. */
+  font-size: calc(13px * var(--card-font-scale, 1));
   font-weight: 550;
   letter-spacing: -.005em;
   line-height: 1.45;
@@ -739,7 +787,7 @@ html[data-embedded] {
 .context-ring:hover .context-ring-tip, .context-ring:focus-visible .context-ring-tip { opacity: 1; }
 .context-ring:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 50%; }
 
-.thread-meta { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--ink-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .02em; }
+.thread-meta { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); letter-spacing: .02em; }
 .thread-meta span + span::before { content: '/'; margin-right: 8px; color: var(--line-strong); }
 .thread-meta .card-process-count {
   display: inline-flex;
@@ -763,7 +811,7 @@ html[data-embedded] {
   overflow-x: hidden;
   overflow-y: auto;
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--card-font-scale, 1));
   line-height: 1.68;
   overflow-wrap: anywhere;
   overscroll-behavior: contain;
@@ -776,13 +824,13 @@ html[data-embedded] {
 .thread-answer::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: padding-box; }
 .thread-answer p { margin: 0 0 9px; overflow-wrap: anywhere; }
 .thread-answer p:last-child { margin-bottom: 0; }
-.thread-answer h1, .thread-answer h2, .thread-answer h3 { margin: 0 0 8px; color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.thread-answer h1, .thread-answer h2, .thread-answer h3 { margin: 0 0 8px; color: var(--ink); font-size: calc(13px * var(--card-font-scale, 1)); font-weight: 600; line-height: 1.4; }
 .thread-answer ul, .thread-answer ol { margin: 0 0 9px; padding-left: 18px; }
 .thread-answer li + li { margin-top: 3px; }
-.thread-answer code { overflow-wrap: anywhere; border-radius: 3px; background: var(--surface-fill); padding: 1px 4px; color: var(--ink-1); font-family: var(--font-mono); font-size: 11px; }
+.thread-answer code { overflow-wrap: anywhere; border-radius: 3px; background: var(--surface-fill); padding: 1px 4px; color: var(--ink-1); font-family: var(--font-mono); font-size: calc(11px * var(--card-font-scale, 1)); }
 .thread-answer pre { max-width: 100%; margin: 0 0 9px; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-sunken); padding: 9px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thread-answer pre code { background: transparent; padding: 0; }
-.thread-answer table { display: block; max-width: 100%; margin: 0 0 9px; overflow-x: auto; border-collapse: collapse; font-size: 11px; }
+.thread-answer table { display: block; max-width: 100%; margin: 0 0 9px; overflow-x: auto; border-collapse: collapse; font-size: calc(11px * var(--card-font-scale, 1)); }
 .thread-answer th, .thread-answer td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .thread-answer th { background: var(--surface-sunken); font-weight: 600; }
 .thread-answer-empty { color: var(--ink-3); }
@@ -801,7 +849,7 @@ html[data-embedded] {
 }
 
 .thread-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 2px; border-top: 1px solid var(--line); padding: 6px 8px; }
-.thread-card footer button { min-height: 26px; border-color: transparent; background: transparent; padding: 0 7px; color: var(--ink-2); font-size: 11px; font-weight: 500; }
+.thread-card footer button { min-height: 26px; border-color: transparent; background: transparent; padding: 0 7px; color: var(--ink-2); font-size: calc(11px * var(--card-font-scale, 1)); font-weight: 500; }
 .thread-card footer button svg { width: 13px; height: 13px; flex: none; }
 .thread-card footer button:hover { border-color: transparent; background: var(--surface-hover); color: var(--ink); }
 .thread-card footer .compare-button { margin-right: auto; }
@@ -872,7 +920,7 @@ html[data-embedded] {
 
 /* ─────────────────────────── draft card ─────────────────────────── */
 
-.draft-card { z-index: 2; height: auto; min-height: 228px; border-style: dashed; border-color: var(--ink-3); }
+.draft-card { z-index: 2; height: auto; min-height: calc(var(--card-h, 276px) - 48px); border-style: dashed; border-color: var(--ink-3); }
 .draft-card strong { color: var(--ink); font-size: 13px; font-weight: 600; }
 .draft-branch-form { display: grid; justify-items: center; gap: 10px; padding: 10px 14px 14px; }
 .draft-quick-phrases { display: flex; width: 100%; flex-wrap: wrap; gap: 6px; }
@@ -1092,7 +1140,10 @@ html[data-embedded] {
   .sidebar { display: none; }
   .topbar, .main-stage { grid-column: 1; }
   .canvas-controls button { padding: 0 6px; }
-  .thread-card { width: 280px; }
+  /* The card's width is NOT overridden here any more: it is a setting, and the
+     layout math places connectors and btw widgets from the same number. A CSS
+     width that disagreed with it (this used to be 280px) put every connector
+     anchor in the wrong place on a narrow window. */
   .canvas-tabs { padding: 0 14px; }
 }
 

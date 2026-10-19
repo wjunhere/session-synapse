@@ -18,6 +18,7 @@ const CARD_POSITIONS_KEY = 'pi-synapse:card-positions:v3'
 const COLLAPSED_CARDS_KEY = 'pi-synapse:collapsed-cards:v1'
 const QUICK_PHRASES_KEY = 'pi-synapse:quick-phrases:v1'
 const BRANCH_ANCHORS_KEY = 'pi-synapse:branch-anchors'
+const SETTINGS_KEY = 'pi-synapse:settings:v1'
 // Formats that were never persisted; dropped on load so they cannot come back.
 const DEAD_CARD_POSITION_KEYS = ['pi-synapse:card-positions', 'pi-synapse:card-positions:v2']
 
@@ -88,6 +89,52 @@ export function persistCardPositions(entries) { writeJson(CARD_POSITIONS_KEY, [.
 export function persistCollapsedCards(ids) { writeJson(COLLAPSED_CARDS_KEY, [...ids]) }
 export function persistQuickPhrases(phrases) { writeJson(QUICK_PHRASES_KEY, phrases) }
 export function persistBranchAnchors(entries) { writeJson(BRANCH_ANCHORS_KEY, [...entries]) }
+
+// ---------------------------------------------------------------------------
+// settings
+// ---------------------------------------------------------------------------
+
+/**
+ * What the settings panel may change, and the range each value is clamped to.
+ *
+ * The clamps live next to the persistence, not in the panel: a hand-edited
+ * localStorage entry (or a future second caller) must not be able to produce a
+ * canvas with 4px cards or a 0-day window that reads as "nothing is ever stale".
+ * The ranges are tuples because that is what `clamp` destructures.
+ */
+export const CARD_SCALE_RANGE = /** @type {[number, number]} */ ([0.8, 1.4])
+export const CARD_FONT_SCALE_RANGE = /** @type {[number, number]} */ ([0.9, 1.3])
+/** Days of activity a card needs to stay on the canvas; `0` means no window. */
+export const RECENT_DAYS_CHOICES = [1, 3, 7, 14, 30, 0]
+export const DEFAULT_SETTINGS = { cardScale: 1, cardFontScale: 1, recentDays: 7 }
+
+/** One number inside its range, or the default when it is not a number at all. */
+function clamp(value, [min, max], fallback) {
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * A complete settings value set: every field present and inside its range.
+ *
+ * Exported because the panel hands its own edits through the same door as the
+ * stored ones — one place decides what a legal value is.
+ */
+export function normalizeSettings(value) {
+  const raw = value !== null && typeof value === 'object' ? value : {}
+  return {
+    cardScale: clamp(raw.cardScale, CARD_SCALE_RANGE, DEFAULT_SETTINGS.cardScale),
+    cardFontScale: clamp(raw.cardFontScale, CARD_FONT_SCALE_RANGE, DEFAULT_SETTINGS.cardFontScale),
+    recentDays: RECENT_DAYS_CHOICES.includes(raw.recentDays) ? raw.recentDays : DEFAULT_SETTINGS.recentDays,
+  }
+}
+
+/** The saved settings, or the defaults (a missing or broken key is not an error). */
+export function loadSettings() {
+  return normalizeSettings(readJson(SETTINGS_KEY, DEFAULT_SETTINGS))
+}
+
+export function persistSettings(settings) { writeJson(SETTINGS_KEY, normalizeSettings(settings)) }
 
 /** Drop every saved card position, including the formats that are no longer read. */
 export function clearCardPositions() {

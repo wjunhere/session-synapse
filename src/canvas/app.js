@@ -8,12 +8,12 @@
  * PointerEvent / MouseEvent / ClipboardEvent. The element is guaranteed by
  * app.html, and the whole module already assumes it.
  */
-import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera } from './state.js'
+import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera, updateSettings } from './state.js'
 import { escapeHtml, displayText, laneColor, formatTime, formatTokens, contextRing } from './format.js'
 import { inlineMarkdown, renderMarkdown } from './markdown.js'
-import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON } from './icons.js'
+import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON, GEAR_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
-import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH } from './storage.js'
+import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
 import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
 import { hostLabels } from './host-labels.js'
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
@@ -33,11 +33,19 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 // `"manual" is not a function` at load time and leaves the canvas blank.
 const debugWindow = /** @type {any} */ (window)
 debugWindow.__synapse = { state }
-const CARD_WIDTH = 310
-const CARD_HEIGHT = 276
+// Card geometry at 100%. The user can scale it (settings panel): the layout is
+// computed in world coordinates, so the size the JS lays out and the size the
+// CSS draws must come from the SAME number — hence the functions below rather
+// than constants, and the `--card-w` / `--card-h` variables they also publish.
+const BASE_CARD_WIDTH = 310
+const BASE_CARD_HEIGHT = 276
 const CARD_GAP_Y = 42
 const CAMERA_INSET_X = 56
 const CAMERA_INSET_Y = 56
+
+/** One card's size in world coordinates, at the user's current scale. */
+const cardWidth = () => Math.round(BASE_CARD_WIDTH * state.settings.cardScale)
+const cardHeight = () => Math.round(BASE_CARD_HEIGHT * state.settings.cardScale)
 // Cards outside the viewport (plus this world-space margin) are not mounted
 // into the DOM; the margin pre-mounts cards just before they scroll into view
 // so panning never flashes empty space.
@@ -66,8 +74,15 @@ const threadListTitle = thread => thread.sessionTitle ?? thread.title ?? questio
 // the store bumps `updatedAt` on every UI write — dragging a card, renaming a
 // session — so a dragged old card would look recent and reappear the next time
 // the canvas reloaded.
-const RECENT_WINDOW_DAYS = 7
-const RECENT_WINDOW_MS = RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+//
+// How wide that window is is a SETTING (`state.settings.recentDays`); `0` means
+// no window at all, i.e. only the user's own hiding applies.
+
+/** The recent-activity window in ms, or null when the user asked for no limit. */
+function recentWindowMs() {
+  const days = state.settings.recentDays
+  return days > 0 ? days * 24 * 60 * 60 * 1000 : null
+}
 
 /** Epoch ms of the thread's last message, or null when nothing is datable. */
 function threadActivityAt(thread) {
@@ -96,8 +111,10 @@ function threadActivityAt(thread) {
 function threadVisibility(thread) {
   if (thread.hidden === true) return 'hidden'
   if (thread.hidden === false) return 'shown'
+  const window = recentWindowMs()
+  if (window === null) return 'shown'
   const activity = threadActivityAt(thread)
-  return activity === null || Date.now() - activity <= RECENT_WINDOW_MS ? 'shown' : 'stale'
+  return activity === null || Date.now() - activity <= window ? 'shown' : 'stale'
 }
 
 const isThreadVisible = thread => threadVisibility(thread) === 'shown'
@@ -575,8 +592,8 @@ function questionFor(thread) {
 function answerFor(thread) { return latestMessage(thread, 'assistant') ?? null }
 
 function overlapsCard(position, other) {
-  return position.x < other.x + CARD_WIDTH && position.x + CARD_WIDTH > other.x
-    && position.y < other.y + CARD_HEIGHT && position.y + CARD_HEIGHT > other.y
+  return position.x < other.x + cardWidth() && position.x + cardWidth() > other.x
+    && position.y < other.y + cardHeight() && position.y + cardHeight() > other.y
 }
 
 function firstAvailableCardPosition(position, occupied) {
@@ -584,24 +601,24 @@ function firstAvailableCardPosition(position, occupied) {
   while (true) {
     const collisions = occupied.filter(other => overlapsCard(candidate, other))
     if (collisions.length === 0) return candidate
-    candidate.y = Math.max(...collisions.map(other => other.y + CARD_HEIGHT + CARD_GAP_Y))
+    candidate.y = Math.max(...collisions.map(other => other.y + cardHeight() + CARD_GAP_Y))
   }
 }
 
 function connectorPath(fromPosition, toPosition) {
-  const fromX = fromPosition.x + CARD_WIDTH
-  const fromY = fromPosition.y + CARD_HEIGHT / 2
+  const fromX = fromPosition.x + cardWidth()
+  const fromY = fromPosition.y + cardHeight() / 2
   const toX = toPosition.x
-  const toY = toPosition.y + CARD_HEIGHT / 2
+  const toY = toPosition.y + cardHeight() / 2
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
 }
 
 function connectorPathFromElements(fromCard, toCard) {
-  const fromX = Number.parseFloat(fromCard.style.left) + CARD_WIDTH
-  const fromY = Number.parseFloat(fromCard.style.top) + CARD_HEIGHT / 2
+  const fromX = Number.parseFloat(fromCard.style.left) + cardWidth()
+  const fromY = Number.parseFloat(fromCard.style.top) + cardHeight() / 2
   const toX = Number.parseFloat(toCard.style.left)
-  const toY = Number.parseFloat(toCard.style.top) + CARD_HEIGHT / 2
+  const toY = Number.parseFloat(toCard.style.top) + cardHeight() / 2
   if (![fromX, fromY, toX, toY].every(Number.isFinite)) return null
   const bend = Math.min(110, Math.max(36, Math.abs(toX - fromX) * .2))
   return `M ${fromX} ${fromY} C ${fromX + bend} ${fromY}, ${toX - bend} ${toY}, ${toX} ${toY}`
@@ -700,13 +717,13 @@ function layoutConversationGraph(cards, threads) {
   const positioned = new Map()
   const positionFor = (card, visiting = new Set()) => {
     if (positioned.has(card.id)) return positioned.get(card.id)
-    if (visiting.has(card.id)) return { x: 86, y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (CARD_HEIGHT + CARD_GAP_Y) }
+    if (visiting.has(card.id)) return { x: 86, y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + CARD_GAP_Y) }
     visiting.add(card.id)
     const parent = card.parentId === null ? undefined : byId.get(card.parentId)
     const parentPosition = parent === undefined ? undefined : positionFor(parent, visiting)
     const position = {
       x: parentPosition === undefined ? 86 : parentPosition.x + 365,
-      y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (CARD_HEIGHT + CARD_GAP_Y),
+      y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + CARD_GAP_Y),
     }
     visiting.delete(card.id)
     positioned.set(card.id, position)
@@ -1049,6 +1066,40 @@ function draftToolChips(draft) {
   return `<div class="draft-tool-chips" role="group" aria-label="这个侧问可用的工具"><span class="draft-tool-chips-label">工具</span>${chips}</div>`
 }
 
+/**
+ * Publish the display settings as CSS custom properties.
+ *
+ * The card's size is decided in ONE place per consumer: the layout math reads
+ * `state.settings` through `cardWidth()`/`cardHeight()`, and the stylesheet reads
+ * these variables — so the box the JS positions and the box the CSS draws can
+ * never disagree. Called at boot and after every change (including the live
+ * preview while a slider is being dragged).
+ */
+function applySettings() {
+  const root = document.documentElement.style
+  root.setProperty('--card-w', `${cardWidth()}px`)
+  root.setProperty('--card-h', `${cardHeight()}px`)
+  root.setProperty('--card-font-scale', String(state.settings.cardFontScale))
+}
+
+/** One range row of the settings panel. */
+function settingsRange(setting, label, [min, max], value, display) {
+  return `<label class="settings-row"><span class="settings-row-label">${label}</span><input type="range" data-setting="${setting}" min="${Math.round(min * 100)}" max="${Math.round(max * 100)}" step="5" value="${Math.round(value * 100)}" aria-label="${label}"><span class="settings-row-value" data-setting-value="${setting}">${display}</span></label>`
+}
+
+/**
+ * The settings panel.
+ *
+ * A panel rather than a page: every control in it changes the canvas the user is
+ * looking at, and the live preview IS the feedback — hence `input` (not
+ * `change`) for the sliders and a value readout beside each one.
+ */
+function settingsPanel() {
+  const { cardScale, cardFontScale, recentDays } = state.settings
+  const days = RECENT_DAYS_CHOICES.map(choice => `<button type="button" class="settings-choice${choice === recentDays ? ' is-on' : ''}" data-action="set-recent-days" data-days="${choice}" aria-pressed="${choice === recentDays}">${choice === 0 ? '不限' : `${choice} 天`}</button>`).join('')
+  return `<section class="settings-panel" data-settings-panel role="dialog" aria-modal="true" aria-label="画布设置"><header class="settings-head"><strong>画布设置</strong><button type="button" data-action="close-settings" aria-label="关闭" title="关闭">${closeIcon()}</button></header><div class="settings-body">${settingsRange('cardScale', '卡片大小', CARD_SCALE_RANGE, cardScale, `${Math.round(cardScale * 100)}%`)}${settingsRange('cardFontScale', '卡片字体', CARD_FONT_SCALE_RANGE, cardFontScale, `${Math.round(cardFontScale * 100)}%`)}<div class="settings-row"><span class="settings-row-label">显示天数</span><div class="settings-choices" role="group" aria-label="一个会话默认显示多少天内的卡片">${days}</div></div><p class="settings-note">卡片大小只改卡片本身，已有卡片的位置不动 —— 叠在一起就点右下角的「整理」重排。设置存在本机，对每个工作区都生效。</p></div></section>`
+}
+
 function draftActions(draft) {
   const disabled = draft.sending ? 'disabled' : ''
   return `<div class="draft-actions"><button type="button" data-action="cancel-draft" ${disabled} aria-label="取消" title="取消">${closeIcon()}</button><button class="primary" type="submit" ${disabled} aria-label="发送" title="发送">${ICON(`<path d="${ICON_PATHS.arrowUp}"/>`)}</button></div>`
@@ -1165,9 +1216,9 @@ function draftPlacement(cards) {
 
 /** Where the Nth btw widget sits: a compact row just below the parent card. */
 function btwSlot(card, index) {
-  const width = Math.round(CARD_WIDTH / 3)
+  const width = Math.round(cardWidth() / 3)
   const gap = 10
-  return { x: card.position.x + index * (width + gap), y: card.position.y + CARD_HEIGHT + 18 }
+  return { x: card.position.x + index * (width + gap), y: card.position.y + cardHeight() + 18 }
 }
 
 /**
@@ -1276,7 +1327,7 @@ function visibleCardIds(cards) {
   const visible = new Set()
   for (const card of cards) {
     const { x, y } = card.position
-    if (x + CARD_WIDTH < left || x > right || y + CARD_HEIGHT < top || y > bottom) continue
+    if (x + cardWidth() < left || x > right || y + cardHeight() < top || y > bottom) continue
     visible.add(card.id)
   }
   return visible
@@ -1340,7 +1391,7 @@ function renderCanvas() {
     clearCanvasCards()
     const stale = threads.filter(thread => threadVisibility(thread) === 'stale').length
     const hidden = threads.length - stale
-    const reasons = [stale === 0 ? '' : `${stale} 个超过 ${RECENT_WINDOW_DAYS} 天没有活动`, hidden === 0 ? '' : `${hidden} 个被收起`].filter(reason => reason !== '').join('，')
+    const reasons = [stale === 0 ? '' : `${stale} 个超过 ${state.settings.recentDays} 天没有活动`, hidden === 0 ? '' : `${hidden} 个被收起`].filter(reason => reason !== '').join('，')
     return `<section class="empty-canvas"><strong>这个工作区暂时没有要显示的卡片</strong><p>${reasons}。在左侧「会话」列表里点眼睛图标可以把它们放回画布。</p>${state.capabilities.createSession === true ? '<div><button class="primary" type="button" data-action="create-session">新建会话</button></div>' : ''}</section>`
   }
   const allCards = conversationCards(visibleThreads)
@@ -1483,7 +1534,7 @@ function render() {
   const view = state.mode === 'thread' ? renderThread() : renderCanvas()
   const choices = workspaceChoices()
   const selectedWorkspaceId = state.selectedHostWorkspaceId ?? workspace?.id
-  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout" title="整理节点" aria-label="整理节点">${ICON(`<path d="${ICON_PATHS.grid}"/>`)}整理</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话">${ICON(`<path d="${ICON_PATHS.target}"/>`)}定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小">${ICON(`<path d="${ICON_PATHS.zoomOut}"/>`)}</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大">${ICON(`<path d="${ICON_PATHS.zoomIn}"/>`)}</button></div>` : ''
+  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout" title="整理节点" aria-label="整理节点">${ICON(`<path d="${ICON_PATHS.grid}"/>`)}整理</button><button data-action="focus-active" title="定位到当前会话" aria-label="定位到当前会话">${ICON(`<path d="${ICON_PATHS.target}"/>`)}定位</button><button data-action="zoom-out" aria-label="缩小" title="缩小">${ICON(`<path d="${ICON_PATHS.zoomOut}"/>`)}</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大" title="放大">${ICON(`<path d="${ICON_PATHS.zoomIn}"/>`)}</button><button data-action="open-settings" aria-label="画布设置" title="画布设置">${GEAR_ICON}</button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
   const newSessionButton = state.capabilities.createSession === true
@@ -1498,9 +1549,9 @@ function render() {
     const visibility = threadVisibility(thread)
     const off = visibility !== 'shown'
     const action = off ? '显示这个会话的卡片' : '隐藏这个会话的卡片'
-    const reason = visibility === 'stale' ? `（${RECENT_WINDOW_DAYS} 天前没有活动，默认不显示）` : ''
+    const reason = visibility === 'stale' ? `（${state.settings.recentDays} 天前没有活动，默认不显示）` : ''
     // The badge slot carries one thing only — why this row looks the way it does.
-    const badge = visibility === 'stale' ? `<i class="tree-stale">${RECENT_WINDOW_DAYS} 天前</i>`
+    const badge = visibility === 'stale' ? `<i class="tree-stale">${state.settings.recentDays} 天前</i>`
       : thread.kind === 'btw' ? '<i class="tree-btw">btw</i>'
         : thread.parentId === null ? '' : '<i>分支</i>'
     return `<div class="tree-item${off ? ' is-off' : ''}"><button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${laneColor(index)}"><span class="tree-dot"></span><span class="tree-index">${String(index + 1).padStart(2, '0')}</span><span class="tree-title">${escapeHtml(threadListTitle(thread))}</span>${badge}</button><button class="tree-visibility" type="button" data-action="toggle-visibility" data-thread="${thread.id}" aria-pressed="${off ? 'true' : 'false'}" aria-label="${action}${reason}" title="${action}${reason}">${off ? EYE_OFF_ICON : EYE_ICON}</button></div>`
@@ -1514,7 +1565,7 @@ function render() {
   // 嵌入模式（宿主自己有壳）：侧栏、顶栏、视图标签全部不渲染，工具改为浮动簇 ——
   // 留一条横跨顶部的栏就还是「应用套应用」。
   const embedded = state.embedded
-  app.innerHTML = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${selectionFollowupButton()}</section></main>`
+  app.innerHTML = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${state.settingsOpen ? settingsPanel() : ''}${selectionFollowupButton()}</section></main>`
   installDragging()
   cacheCardConnectors()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
@@ -1737,8 +1788,8 @@ function focusActiveCard() {
   const { x: left, y: top } = card.position
   const bounds = viewport.getBoundingClientRect()
   state.canvasCamera = {
-    x: bounds.width / 2 - (left + CARD_WIDTH / 2) * state.zoom,
-    y: bounds.height / 2 - (top + CARD_HEIGHT / 2) * state.zoom,
+    x: bounds.width / 2 - (left + cardWidth() / 2) * state.zoom,
+    y: bounds.height / 2 - (top + cardHeight() / 2) * state.zoom,
   }
   applyCanvasTransform()
   syncCanvasViewport()
@@ -1886,6 +1937,28 @@ app.addEventListener('pointerup', queueSelectionFollowup)
 app.addEventListener('scroll', hideSelectionFollowup, true)
 document.addEventListener('selectionchange', queueSelectionFollowup)
 
+// The settings sliders preview LIVE (`input`) and commit the redraw on release
+// (`change`): a full render() per input event would rebuild the panel under the
+// user's finger and drop the drag. `change` also fires for a keyboard-driven
+// range change, which is the case where the redraw is the whole feedback.
+function applySettingInput(input) {
+  const setting = input.dataset.setting
+  const settings = updateSettings({ [setting]: Number(input.value) / 100 })
+  applySettings()
+  const readout = document.querySelector(`[data-setting-value="${setting}"]`)
+  if (readout !== null) readout.textContent = `${Math.round(settings[setting] * 100)}%`
+}
+app.addEventListener('input', event => {
+  const input = event.target
+  if (input instanceof HTMLInputElement && input.dataset.setting !== undefined) applySettingInput(input)
+})
+app.addEventListener('change', event => {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement) || input.dataset.setting === undefined) return
+  applySettingInput(input)
+  render()
+})
+
 app.addEventListener('click', async event => {
   const button = event.target instanceof Element ? event.target.closest('[data-action]') : null
   if (!(button instanceof HTMLElement)) {
@@ -2017,6 +2090,14 @@ app.addEventListener('click', async event => {
     if (button.dataset.action === 'host-archive' && thread !== undefined) await archiveInHost(thread, true)
     if (button.dataset.action === 'zoom-in') zoomCanvasAtCenter(.1)
     if (button.dataset.action === 'zoom-out') zoomCanvasAtCenter(-.1)
+    if (button.dataset.action === 'open-settings') { state.settingsOpen = true; render() }
+    if (button.dataset.action === 'close-settings') { state.settingsOpen = false; render() }
+    if (button.dataset.action === 'set-recent-days' && button.dataset.days !== undefined) {
+      // Changing the window changes WHICH cards exist, so this one is a full
+      // redraw rather than a live patch (the slider case, below, is not).
+      updateSettings({ recentDays: Number(button.dataset.days) })
+      render()
+    }
     if (button.dataset.action === 'focus-active') focusActiveCard()
     if (button.dataset.action === 'dismiss-error') { state.error = ''; render() }
     if (button.dataset.action === 'layout' && state.workspace !== null) {
@@ -2173,6 +2254,9 @@ function applyHostTokens(tokens) {
 }
 
 post('synapse:map-ready')
+// The saved display settings go on the document before the first render, so the
+// cards are drawn at the user's size from the very first frame.
+applySettings()
 // The host declares what it can do, how it names itself, and how it wants its
 // writes delivered; the canvas hides actions it cannot perform rather than
 // showing buttons that would fail.

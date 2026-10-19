@@ -12,9 +12,9 @@
  * reload.
  */
 import {
-  loadBranchAnchors, loadCardPositions, loadCollapsedCards, loadQuickPhrases,
-  clearCardPositions, persistBranchAnchors,
-  persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistQuickPhrases as saveQuickPhrases,
+  loadBranchAnchors, loadCardPositions, loadCollapsedCards, loadQuickPhrases, loadSettings,
+  clearCardPositions, normalizeSettings, persistBranchAnchors,
+  persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistQuickPhrases as saveQuickPhrases, persistSettings as saveSettings,
 } from './storage.js'
 import { hostLabels } from './host-labels.js'
 
@@ -35,8 +35,15 @@ export const state = {
   // status call is still in flight.
   btwDefaultTools: ['read', 'grep', 'find', 'ls'],
   btwToolOptions: ['read', 'grep', 'find', 'ls'],
+  // Canvas-wide display settings (card size, card type size, the recent-activity
+  // window). Persisted locally and applied through CSS variables, so they hold
+  // for every workspace and both hosts; the panel writes them through
+  // `updateSettings()` below, which is the only thing that may change them.
+  settings: loadSettings(),
   hostWorkspaces: [], selectedHostWorkspaceId: null,
   pendingReplies: new Map(), pendingRpc: new Map(), liveReplies: new Map(),
+  // The settings panel is open (a dialog over the map; it previews live).
+  settingsOpen: false,
   draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(loadBranchAnchors()), cardPositions: new Map(loadCardPositions()), collapsedCardIds: new Set(loadCollapsedCards()), quickPhrases: loadQuickPhrases(), quickPhraseEditorOpen: false,
   dragging: false, canvasGesture: false, canvasRefreshAfter: 0, canvasViewInitialized: false, canvasCamera: { x: 0, y: 0 }, mapCardSessionSwitches: new Set(),
   expandedMessageIds: new Set(),
@@ -67,4 +74,17 @@ export function resetCardPositions() {
 export function resetCanvasCamera() {
   state.canvasViewInitialized = false
   state.canvasCamera = { x: 0, y: 0 }
+}
+
+/**
+ * Merge one settings change in, normalize it, and remember it.
+ *
+ * The caller gets back what was actually stored, which is what it must render:
+ * a slider that asked for 200% and a canvas that shows 140% are two different
+ * numbers, and the panel is not allowed to disagree with the canvas.
+ */
+export function updateSettings(patch) {
+  state.settings = normalizeSettings({ ...state.settings, ...patch })
+  saveSettings(state.settings)
+  return state.settings
 }

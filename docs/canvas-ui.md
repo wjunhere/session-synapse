@@ -16,6 +16,7 @@
 - **侧栏一行的结构是 `.tree-item` 包着两个按钮**：`.tree-row[data-thread]`（`data-action="select-thread"`，验证脚本点它选会话）与 `[data-action="toggle-visibility"][data-thread]`（眼睛）。按钮不能嵌套（HTML 会默默丢掉内层），所以包装层必须有。验证脚本：`scripts/verify-visibility.mjs`。
 - 类名与 `data-*` 是验证脚本的选元素契约，**改样式可以，改名字要同步改 `scripts/verify-*.mjs`**。
 - **侧问草稿卡的工具 chips（`.draft-tool-chips` / `.draft-tool-chip`，`data-action="toggle-draft-tool"` + `data-tool`）是宿主词表的展示，不是画布自带的清单。** 名字全部来自 `/synapse/api/status`（`pinnableTools` 当选项、`defaultBtwTools` 当初始选中），画布只负责「选中的填紫底、未选的空底」与一个可滚动的行（`max-height` 卡住，否则 25 个工具会把草稿卡拉成一堵墙）。别把 pi 的 `read/grep/find/ls` 写回画布：那是 pi-web 的预设，DSH 的工具名完全不同。
+- **卡片尺寸与字体是设置，不是常量。** 宽度/高度由 `state.settings.cardScale` 乘出来，同时发给两边：JS 用 `cardWidth()`/`cardHeight()` 算位置、连线锚点、虚拟化包围盒，CSS 用 `--card-w` / `--card-h` 画盒子 —— 两边的数字必须来自同一个地方，否则连线锚点会错位（曾经的窄屏媒体查询就是一个反例，已删）。字体是 `--card-font-scale`，只乘卡片自己的那几号字。设置面板（右下角齿轮）里拖滑块时走 `input` 事件即时预览、`change` 时整体重绘：每次 `input` 都 `render()` 会把面板从手指底下重建、拖拽断掉。
 - 颜色只承载语义（失败/侧问/工具数/上下文压力），新增颜色先问「它代表什么」。
 - 字体是本地随包的（`src/canvas/fonts/*.woff2`，只做拉丁子集，中文走系统字）。新增字体资源必须走 `createAssetHandler` 的 `binary` 分支，按 utf8 读会破坏 woff2。
 - 行与行之间靠 1px `#eaeaea` 发丝线分层，不用阴影堆叠。

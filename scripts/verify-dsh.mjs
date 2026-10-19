@@ -167,6 +167,66 @@ const store = () => page.evaluate(async () => {
 })
 const archivedInHost = () => JSON.parse(readFileSync(join(HOME, 'storages', 'workspace.json'), 'utf8')).global.archivedSessionIds ?? []
 
+/**
+ * 会话标签行里的标签文字。
+ *
+ * 宿主的 tablist 不止一个（侧栏也有一排），所以按「这一排里有 会话地图」认人 ——
+ * 那是我们自己注册的标签，不会认错。没有会话视图时返回空数组。
+ */
+const conversationTabs = () => page.evaluate(() => {
+  for (const list of document.querySelectorAll('[role="tablist"]')) {
+    const tabs = [...list.querySelectorAll('[role="tab"]')]
+    if (tabs.some(tab => (tab.textContent ?? '').trim() === '会话地图')) return tabs.map(tab => (tab.textContent ?? '').trim())
+  }
+  return []
+})
+
+/** 当前选中的会话标签（只在那排行里找）。 */
+const activeConversationTab = () => page.evaluate(() => {
+  for (const list of document.querySelectorAll('[role="tablist"]')) {
+    const tabs = [...list.querySelectorAll('[role="tab"]')]
+    if (!tabs.some(tab => (tab.textContent ?? '').trim() === '会话地图')) continue
+    const active = tabs.find(tab => tab.getAttribute('aria-selected') === 'true') ?? tabs.find(tab => /Active/.test(tab.className))
+    return active === undefined ? null : (active.textContent ?? '').trim()
+  }
+  return null
+})
+
+/** 点会话标签行里的某个标签；那一排不在时返回 false。 */
+const clickConversationTab = label => page.evaluate(text => {
+  for (const list of document.querySelectorAll('[role="tablist"]')) {
+    const tabs = [...list.querySelectorAll('[role="tab"]')]
+    if (!tabs.some(tab => (tab.textContent ?? '').trim() === '会话地图')) continue
+    const tab = tabs.find(node => (node.textContent ?? '').trim() === text)
+    if (tab === undefined) continue
+    tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    return true
+  }
+  return false
+}, label)
+
+/**
+ * 切到画布：有标签就点宿主标签行里的「会话地图」，没有标签行时用浮动入口。
+ *
+ * 两种入口是产品设计的两半（标签是主入口，欢迎页那一屏没有标签行），所以
+ * 验证脚本不能只认其中一种。
+ */
+async function showMap() {
+  if (!(await clickConversationTab('会话地图'))) await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="map"]').click())
+  await sleep(1_500)
+}
+
+/** 切回对话：同上。 */
+async function showDialog() {
+  if (!(await clickConversationTab('对话'))) await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="dialog"]').click())
+  await sleep(1_500)
+}
+
+const overlayVisible = () => page.evaluate(() => {
+  const overlay = document.querySelector('.synapse-overlay')
+  return overlay !== null && overlay.hidden === false
+})
+
 try {
   await page.goto(`${BASE}/?token=${token}`, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('.synapse-switch button', { timeout: 30_000 })
@@ -185,39 +245,31 @@ try {
   // `setTools` 关：DSH 没有「按会话固定工具清单」这回事，不能假装有。
   check('能力：btw 开、setTools 关', caps.btw === true && caps.setTools === false, JSON.stringify(caps))
 
-  await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="map"]').click())
+  await showMap()
   await frame().waitForSelector('.thread-card, .empty-canvas', { timeout: 30_000 })
   const appText = await frame().evaluate(() => document.querySelector('#app')?.textContent?.length ?? 0)
   check('iframe 里画布真的渲染了', appText > 0, `#app ${appText} 字`)
 
-  // B. 切换条长在宿主自己的头部操作区里（紧邻文件管理器），而不是浮在标题上
+  // B. 没有会话时（欢迎页）地图只有一个浮动入口 —— 那一屏没有标签行
   const placement = () => page.evaluate(() => {
     const bar = document.querySelector('.synapse-switch')
-    const corner = document.querySelector('[class*="_headerCorner"]')
-    const header = corner?.closest('header')
     const centre = document.querySelector('[class*="_centerCol"]')
     const overlay = document.querySelector('.synapse-overlay')
     const rect = bar?.getBoundingClientRect()
     const hit = rect === undefined ? null : document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
     return {
-      inCorner: bar?.parentElement === corner && corner !== null,
-      firstChild: (corner?.firstElementChild?.className ?? '').toString().includes('synapse-switch'),
+      hidden: bar?.hidden === true,
       overlay: { top: getComputedStyle(overlay).top, left: getComputedStyle(overlay).left, width: getComputedStyle(overlay).width },
-      headerBottom: `${Math.round(header?.getBoundingClientRect().bottom ?? -1)}px`,
       centre: { left: `${Math.round(centre?.getBoundingClientRect().left ?? -1)}px`, width: `${Math.round(centre?.getBoundingClientRect().width ?? -1)}px` },
       sidebarVisible: document.querySelector('[class*="_sidebarCol"]') !== null,
       visible: rect !== undefined && rect.width > 0 && rect.height > 0,
       hitIsBar: hit?.closest('.synapse-switch') !== null && hit?.closest('.synapse-switch') !== undefined,
     }
   })
-  const dialogPlacement = await placement()
-  check('切换条落在宿主头部的操作区里', dialogPlacement.inCorner === true, JSON.stringify(dialogPlacement))
-  check('排在操作区最前（紧邻文件管理器那排按钮）', dialogPlacement.firstChild === true)
-  check('画布从头部下方开始（头部在地图视图里仍可见）', dialogPlacement.overlay.top === dialogPlacement.headerBottom, `overlay=${dialogPlacement.overlay.top} header=${dialogPlacement.headerBottom}`)
-  check('画布只占中间那一列（宿主侧栏留在旁边）', dialogPlacement.overlay.left === dialogPlacement.centre.left && dialogPlacement.overlay.width === dialogPlacement.centre.width && dialogPlacement.sidebarVisible, `overlay=${JSON.stringify(dialogPlacement.overlay)} centre=${JSON.stringify(dialogPlacement.centre)}`)
-
-  const mapPlacement = await placement()
-  check('地图视图下切换条仍可见且没被画布盖住', mapPlacement.visible && mapPlacement.hitIsBar, JSON.stringify(mapPlacement))
+  const welcomePlacement = await placement()
+  check('没有会话时浮动入口还在（否则这一屏进不了地图）', welcomePlacement.hidden === false && welcomePlacement.visible === true, JSON.stringify(welcomePlacement))
+  check('浮动入口在地图之上、点得到', welcomePlacement.hitIsBar === true, JSON.stringify(welcomePlacement))
+  check('画布只占中间那一列（宿主侧栏留在旁边）', welcomePlacement.overlay.left === welcomePlacement.centre.left && welcomePlacement.overlay.width === welcomePlacement.centre.width && welcomePlacement.sidebarVisible, `overlay=${JSON.stringify(welcomePlacement.overlay)} centre=${JSON.stringify(welcomePlacement.centre)}`)
 
   // C. 画布带多少 chrome：这个宿主已经有自己的侧栏和头部，画布什么都不带
   const chrome = await frame().evaluate(() => {
@@ -259,8 +311,7 @@ try {
   // 发第二条，验的是画布 → /synapse/api/host/prompt 这条路。
   //
   // 必须先切回「对话」：地图视图下画布遮罩就盖在输入框上面，点它只会超时。
-  await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="dialog"]').click())
-  await sleep(1_500)
+  await showDialog()
   const composer = page.locator('[contenteditable=true]').first()
   await composer.click()
   await composer.type('画布发来的第一条消息')
@@ -274,8 +325,40 @@ try {
   check('宿主里发的第一条消息在画布上画成了卡片', created !== undefined, created === undefined ? '卡片没出现' : `sessionId=${created.sessionId}`)
   check('模型真的回答了（写操作 + 投影闭环）', created?.messages.some(text => text.startsWith('assistant:')) === true, JSON.stringify(created?.messages.at(-1)?.slice(0, 60) ?? null))
 
+  // B2. 有会话之后，地图的入口是宿主自己的一个标签（不是我们注入的按钮）
+  const labels = await conversationTabs()
+  check('「会话地图」是宿主标签行里的一个标签', labels.includes('会话地图'), JSON.stringify(labels))
+  check('它排在宿主自己的标签后面', labels.indexOf('会话地图') === labels.length - 1 && labels.indexOf('对话') === 0, JSON.stringify(labels))
+  check('有会话后浮动入口不再出现（入口只剩标签）', await page.evaluate(() => document.querySelector('.synapse-switch')?.hidden === true))
+  check('刚打开会话时不在画布上（停在 对话 标签）', (await overlayVisible()) === false && (await activeConversationTab()) === '对话', `active=${await activeConversationTab()}`)
+
+  await showMap()
+  const tabPlacement = await page.evaluate(() => {
+    const overlay = document.querySelector('.synapse-overlay')
+    const centre = document.querySelector('[class*="_centerCol"]')
+    let tab
+    for (const list of document.querySelectorAll('[role="tablist"]')) {
+      const tabs = [...list.querySelectorAll('[role="tab"]')]
+      if (!tabs.some(node => (node.textContent ?? '').trim() === '会话地图')) continue
+      tab = tabs.find(node => (node.textContent ?? '').trim() === '会话地图')
+    }
+    const rect = tab?.getBoundingClientRect()
+    const hit = rect === undefined ? null : document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+    return {
+      overlay: { left: getComputedStyle(overlay).left, width: getComputedStyle(overlay).width },
+      centre: { left: `${Math.round(centre?.getBoundingClientRect().left ?? -1)}px`, width: `${Math.round(centre?.getBoundingClientRect().width ?? -1)}px` },
+      tabClickable: hit?.closest('[role="tab"]') !== null && hit?.closest('[role="tab"]') !== undefined,
+      sidebarVisible: document.querySelector('[class*="_sidebarCol"]') !== null,
+    }
+  })
+  check('点「会话地图」标签出画布', (await overlayVisible()) === true && (await activeConversationTab()) === '会话地图', `active=${await activeConversationTab()}`)
+  check('画布铺满中间那一列，且标签行仍在它上面（点得到）', tabPlacement.overlay.left === tabPlacement.centre.left && tabPlacement.overlay.width === tabPlacement.centre.width && tabPlacement.tabClickable === true && tabPlacement.sidebarVisible, JSON.stringify(tabPlacement))
+
+  await showDialog()
+  check('点「对话」标签收回画布', (await overlayVisible()) === false && (await activeConversationTab()) === '对话', `active=${await activeConversationTab()}`)
+
   // 回到地图，后面都是画布上的动作
-  await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="map"]').click())
+  await showMap()
   await sleep(2_000)
 
   // 从卡片上追问：这条走画布自己的写通道

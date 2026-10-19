@@ -36,9 +36,10 @@ client 半区：
 |---|---|
 | `ctx.sessions` | `list.getSnapshot()` → `{ ids, byId }`，行字段 `id/displayTitle/title/cwd/parentId/running/blank/updatedAt`；`retain()` 后 `binding.session.prompt()` 发消息；`create()` / `fork()` |
 | `ctx.uiWorkspace` | `openSession(id)` 切到某会话的对话视图、`archiveSession()`、`forkSession()` |
-| `ctx.uiConversation` | `binding(id).target('chat')` 读流式正文（可选） |
+| `ctx.uiConversation` | `binding(id).target('chat')` 读流式正文（可选）；`binding(id).activate(viewId)` 切到某个会话标签 |
+| `ctx.slots` | `inject('conversation.view', () => register({ name: 'conversation.view', id, order, label, inject }, Component))` 把「会话地图」注册成宿主标签行里的一个标签（与 对话/轨迹/提示词 同一套）。组件由 ui-renderer 用 React 渲染（所以 client bundle 里现在真的 `require('react')`），挂载/卸载就是「地图是不是当前标签」的真相（§5.1） |
 
-client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factory` 里只允许 `require` 平台种子词（`react`、`react/jsx-runtime`、`@deepseek-ai/dsh-client-ui-primitives` 等）。我们的画布不是 React，client 半区只用 DOM + `postMessage`，因此**不需要打包器**。
+client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factory(require)` 里只允许 `require` 平台种子词（`react`、`react/jsx-runtime`、`@deepseek-ai/dsh-client-ui-primitives` 等）。画布本身仍然是 DOM + `postMessage`（视图正文只挂一个锚点 `div`），因此**不需要打包器**；唯一用到的种子模块是 `react`（标签视图必须是个 React 组件）。
 
 ## 3. 数据
 
@@ -77,25 +78,31 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | 运行中/流式 | 父页面订阅 pi-web 的 SSE | client 半区保留 running 会话的引用，读它 event window 里的 `assistant/live-chunk`（`text-delta` 拼接） |
 | 主题 | `documentElement.dataset.theme` / `dark` class | `body[data-ds-dark-theme]`（client 半区转成 `synapse:theme`） |
 | 写操作（新建/发消息/分支/改名/归档） | 浏览器直接调 pi-web 的 `/api/*`（pi-web 要求 `Origin` 等于自己的 `Host`，只有页面能发） | 画布调 `/synapse/api/host/*`，插件在本进程内调 harness 服务（`ctx.sessionController` / `ctx.workspaceController`） |
-| 切换条位置 | pi-web 页面上居中悬浮（`src/canvas/bridge.js` 注入） | 宿主头部的操作区（`[class*="_headerCorner"]`）里第一个子节点，紧邻文件管理器/面板开关那排 |
+| 地图入口 | pi-web 页面上居中悬浮的切换条（`src/canvas/bridge.js` 注入） | 宿主自己的会话标签行里的一个标签（`conversation.view` 槽位，与 对话/轨迹/提示词 同一套）；没有标签行的那一屏（欢迎页）才用浮动胶囊 |
 | 画布占哪块地方 | 覆盖 pi-web 整页（除顶栏） | 宿主框架的**中间那一列**（`[class*="_centerCol"]`），头部下沿起 —— 宿主的侧栏和头部留在原处 |
 | 画布自己的侧栏 | 展开（它就是这个界面的唯一导航） | **不渲染**：宿主已有自己的会话列表，两份列表是同一份信息两次 |
 | 画布自己的顶栏 / 视图标签 | 渲染 | **不渲染**：宿主已有头部，再顶一条就是「应用套应用」；工具改成右下角浮动簇 |
 | 颜色与字体 | 画布自己的暖纸色 + Geist/Newsreader | 跟随宿主的 `--dsw-alias-*` / `--dsw-font-family`（由宿主半区读出后经桥推过来） |
 
-### 5.1 切换条为什么长在头部操作区里
+### 5.1 地图为什么是宿主的一个标签（而不是自己注入一条切换框）
 
-宿主**没有**为这个位置提供 slot（`dsh-client-ui-slots` 里只有 `sidebar` / `main` / `rightbar` / `shell.overlay` / `shell.leading` 这些框架级席位），所以切换条是 DOM 注入的，用 CSS-module 的**本地名**匹配（`*_headerCorner`）：哈希前缀每次构建都变，本地名不变。
+宿主自己就把「对话 / 轨迹 / 提示词」做成了**可注册的视图**：`ctx.slots.inject('conversation.view', () => ctx.slots.register({ name: 'conversation.view', id, order, label, inject }, Component))`。标签行由宿主从 `slots.entries('conversation.view')` 渲染，哪个是当前标签、每个会话记住哪个标签、点击怎么切，全是宿主的事 —— 所以「会话地图」注册成一个视图就够了，不需要注入按钮，也不需要自己维护选中态。
 
-两条推论，都是踩过才知道的：
+于是契约变成一条极简的循环：**我们的组件被挂载 = 地图是当前标签**，所以挂载时 `show('map')`、卸载时 `show('dialog')`，宿主的状态就是唯一真相。两个后果：
 
-1. **画布要只占中间那一列，且从头部下沿开始。**
-   - 如果遮罩从页面顶部起，头部（连同里面的切换条）会被盖住 —— 按钮恰好在最需要它的时候点不到；
-   - 如果遮罩只从头部下沿起、但横跨整页宽，宿主的侧栏会被**半截覆盖**：它自己的侧栏顶部（logo、新会话）露在画布上方，画布自己的侧栏又接着往下列 —— 两截侧栏叠在同一列，看起来像另一个应用被嵌进窗口（实测截图对比过）。所以宽度收到中间那一列，切视图只换内容，宿主侧栏/头部不动。
-   - 几何全部实测得出（`--synapse-top` / `--synapse-left` / `--synapse-width`），右栏展开、侧栏收起、全屏都会变，所以跟切换条同一套 observer 重算。
-2. **注入的节点会被 React 重渲染丢掉。** 切会话/切主题都会重建头部，所以要用 MutationObserver（rAF 合帧）幂等地重挂，并重算几何。
+- **画布仍然是 iframe + 固定定位的遮罩，不是视图的子节点。** 在 DOM 里搬动 iframe 会让它重新加载，把画布当视图正文就等于每切一次标签把整页（相机、选中、模块图）重载一遍。视图正文只渲染一个锚点 `div`，遮罩按实测几何（头部下沿 + 中间那一列）盖在会话区上。
+- **「离开地图」不是自己能做的事。** 点 对话 是宿主切标签（我们卸载 → 收遮罩）；但欢迎页的浮动入口打开的那层遮罩没有任何东西会卸载它，所以还要按标签行的 active 状态同步（`syncMapWithHost`）。同理 Escape 与「打开会话」要请宿主切到 `chat` 视图，而不是自己把遮罩藏掉 —— 否则标签停在 会话地图、背后却是一片空白。
 
-头部找不到时（全屏框架、以后的布局改版）切换条回到自己的容器里当悬浮胶囊 —— **只降级位置，不降级功能**。
+几何仍然是实测的（`--synapse-top` / `--synapse-left` / `--synapse-width`）：右栏展开、侧栏收起、全屏都会变，跟标签行同一套 observer 重算。
+
+**没有标签行的那一屏（欢迎页）保留浮动胶囊。** 实测：欢迎页会为它自己的输入框保留一个会话（所以“有当前会话”不等于“有标签行”），但它不渲染标签行 —— 那时地图的入口只能是胶囊，而胶囊的显示条件因此要看 DOM（`conversationTabList()`），不能看会话 id。
+
+遮罩为什么只占中间那一列、且从头部下沿开始（踩过才知道的）：
+
+- 如果遮罩从页面顶部起，头部（连同里面的标签行）会被盖住 —— 入口恰好在最需要它的时候点不到；
+- 如果遮罩只从头部下沿起、但横跨整页宽，宿主的侧栏会被**半截覆盖**：它自己的侧栏顶部（logo、新会话）露在画布上方，画布自己的侧栏又接着往下列 —— 两截侧栏叠在同一列，看起来像另一个应用被嵌进窗口（实测截图对比过）。所以宽度收到中间那一列，切视图只换内容，宿主侧栏/头部不动。
+
+画布自己的设置面板（右下角齿轮：卡片大小 / 卡片字体 / 显示天数）不依赖宿主，两边都有；见 [canvas-ui.md](canvas-ui.md)。
 
 画布带多少 chrome 由宿主说：DSH 在 `synapse:map-ready` 后回一条 `synapse:chrome {embedded:true}`，画布进入**嵌入模式**（侧栏/顶栏/标签行全不渲染、工具变浮动簇、字体与颜色改跟宿主）。pi-web 不发这条消息，画布保持原样。
 
@@ -166,7 +173,14 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 npm run verify:dsh
 ```
 
-`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 38 项（切换条/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 43 项（标签入口/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+
+标签与设置面板另有独立探针（都自己起隔离 home，跑完删掉）：
+
+```bash
+node B:/vibe_program/tmp/probe-dsh-tab-settings.mjs   # 15 项：标签出/收画布 + 设置面板三项真的生效
+node B:/vibe_program/tmp/probe-dsh-welcome.mjs        # 诊断：欢迎页的入口与标签行的存在性
+```
 
 **它验不到「重启后」**：整个套件活着的是同一个 harness，而 `/btw` 的工具钉正是重启会丢的那一半。那一段在独立探针里（它自己会重启 harness）：
 
@@ -237,3 +251,5 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 60. **注入的 UI 与遮罩的层级要先想清楚再动手。** 地图视图下画布遮罩盖着中间列，所以在自动化里先切回「对话」再点 DSH 的输入框（否则 `locator.click` 只会等到 30s 超时）。这是验证脚本的坑，不是产品的：真实用户不会去点被遮住的东西。
 61. **归档会拦住会话发言，`prompt` 还不报错。** 归档给会话挂上 `ArchivedSessionGate`（`ctx.on('agent/pre-step')` → `{kind:'reject'}`），那一轮以 `turn/end {kind:'blocked'}` 结束：没有模型请求、没有错误、`sessionController.prompt` 照样返回 200。所以「把侧问归档掉以保持列表干净」在 DSH 上是把侧问变成哑巴（实测：fork 完就归档，紧接着第一条侧问就答不出来）。`/btw` 因此**不归档**（§5.3），代价是侧问留在 harness 自己的会话列表里；画布上「从画布移除这个侧问」那个按钮对 DSH 的提示语也跟着改成「归档后只能查看，要再发言得先取消归档」。
 62. **工具限制是 agent 作用域上的效应，不是会话状态。** `tools.restrict({allow})` 挂在 `agent.ctx` 上（不是写进会话日志），所以：① 进程重启后就没了，得在 `agent/created` 上重新钉（§5.3）；② 注册在 agent 自己那层上的工具不受它影响（实测钉 read/grep/glob 后 `subagent` 仍在），把这些名字写进 `allow` 会被当场拒绝——所以 chips 的候选只能是 `view(agent).restrictableNames`（状态接口里叫 `pinnableTools`），`schemas(agent)` 只能用来报「这个会话实际看得见什么」（`tools`）；把后者当选项清单就是把「摆一个必然失败的选择」当成功能；③ `{allow: []}` 是 no-op 而不是「全不给」，空清单必须自己拒。
+63. **宿主的 `[role="tablist"]` 不止一个，而「有当前会话」不等于「有标签行」。** 侧栏自己就是一排 tab（实测 `_tabStrip_…`），所以「任何 tablist」不是要问的问题；而欢迎页会为自己的输入框保留一个会话、却不渲染会话标签行（实测：`tabs: []` 但 `currentSessionId()` 非空）。所以：① 认「哪一排里有我们自己注册的标签」（`conversationTabList()`）；② 浮动胶囊的显示条件看 DOM，不看会话 id。搞错的症状是欢迎页的入口消失，而地图没有其它入口。
+64. **标签是宿主的状态，画布不能自己藏遮罩就完事。** 点 对话 是宿主切标签，我们只会在视图卸载时收遮罩；但欢迎页浮动胶囊打开的那层遮罩**没有任何东西会卸载它**（地图视图从没被挂载过），于是切到会话后画布还盖在对话上（实测：套件点输入框被 iframe 拦住，30s 超时）。两条修法合起来才完整：`syncMapWithHost()`（标签行说当前不是地图 → 收遮罩）与 `leaveMap()`（只有真的渲染了标签行的宿主才由它接管，否则自己收）。
