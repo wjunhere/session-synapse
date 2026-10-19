@@ -9,6 +9,8 @@
  * 所以这里也要验「不该加载时没加载」。
  */
 import { launchBrowser } from './browser.mjs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
@@ -139,7 +141,7 @@ try {
     vendorRequests.includes('mermaid.js') && vendorRequests.includes('temml.js'), vendorRequests.join(',') || '(没有请求)')
 
   // 截图（观感只能看图）：滚到图和列表两处
-  const shot = process.env.PROBE_SHOT ?? 'B:/vibe_program/tmp/verify-markdown.png'
+  const shot = process.env.PROBE_SHOT ?? join(tmpdir(), 'verify-markdown.png')
   await frame.locator('.md-mermaid').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
   await page.screenshot({ path: shot, fullPage: false })
