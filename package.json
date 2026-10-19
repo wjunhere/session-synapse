@@ -1,5 +1,5 @@
 {
-  "name": "session-synapse",
+  "name": "@wjunhere/session-synapse",
   "version": "0.1.0",
   "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
   "type": "module",
@@ -58,7 +58,7 @@
     "visualization"
   ],
   "license": "MIT",
-  "author": "wjun",
+  "author": "wjun (wjunhere)",
   "publishConfig": {
     "access": "public"
   },

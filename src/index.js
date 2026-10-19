@@ -14,12 +14,16 @@ export { createProxy, startServer } from './server/proxy.js'
 // DSH plugin face.
 //
 // The DSH loader mounts a plugin package by its BARE name, and its client-module
-// graph only recognises bare names (`exactPackageSpecifier` rejects subpaths),
-// so this package's main entry has to BE the plugin — the same shape dsh-synapse
-// and dsh-skill-mcp-panel ship. The library exports above stay as they were, so
-// `import { Synapse } from 'session-synapse'` keeps working.
+// graph only recognises bare names (`exactPackageSpecifier` rejects subpaths, but
+// accepts a scoped `@scope/name`), so this package's main entry has to BE the
+// plugin — the same shape dsh-synapse and dsh-skill-mcp-panel ship. The library
+// exports above stay as they were, so `import { Synapse } from
+// '@wjunhere/session-synapse'` keeps working.
 //
 // `cordis.patch.yml` mounts this by name; the client half is
 // `exports["./client"]` (src/host/dsh/client.js), which the browser loads from
-// `/plugins/session-synapse/client.js`.
+// `/plugins/@wjunhere/session-synapse/client.js`. The name appears in FOUR
+// places that must agree character for character: package.json `name`,
+// cordis.patch.yml `name`, the client bundle's `load({ id })`, and the
+// profile's dependency key.
 export { name, inject, apply } from './host/dsh/index.js'

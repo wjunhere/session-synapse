@@ -24,7 +24,7 @@ pi-web 让你看清一个会话，session-synapse 让你看清所有会话之间
 ## 安装
 
 ```bash
-npm install -g session-synapse   # 之后直接 `synapse start`
+npm install -g @wjunhere/session-synapse   # 之后直接 `synapse start`
 ```
 
 从源码跑（开发）：
@@ -49,9 +49,11 @@ node bin/synapse.js start
 画布以**宿主插件**的形式挂进 harness：同一个进程，直接读它的会话服务，不另外起服务、不反代。
 
 ```bash
-dsh plugin add link:/绝对路径/到/session-synapse   # 装进当前 profile
-dsh web                                            # 启动后顶部出现「对话 / 会话地图」
+dsh plugin add @wjunhere/session-synapse   # 从 npm 装进当前 profile
+dsh web                                   # 启动后顶部出现「对话 / 会话地图」
 ```
+
+本地改代码时用路径安装：`dsh plugin add link:/绝对路径/到/session-synapse`。
 
 桌面版（Electron 应用）**不要手改 profile**：那个 profile 由应用独占，`dsh plugin --profile desktop` 会被拒绝。在应用里用「设置 → 插件」安装，填仓库的**绝对路径**即可（插件管理器接受 registry 名、git、绝对路径/`link:` 三种写法）。装完重启应用。
 

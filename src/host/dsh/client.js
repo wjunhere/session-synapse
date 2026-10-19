@@ -39,7 +39,12 @@
 // the cast states that this file only makes sense inside that runtime.
 const loader = /** @type {{ load: (definition: { id: string, factory: (require: (name: string) => any) => any }) => void }} */ (/** @type {any} */ (window).__ModuleLoader__)
 loader.load({
-  id: 'session-synapse',
+  // MUST be the package's own `name`, character for character: this id is the
+  // module graph's row id, so a mismatch leaves the factory unregistered and the
+  // client half never loads — the host renders its own UI and nothing of ours
+  // (no tab, no switch bar), with no error anywhere. Verified end to end by
+  // `npm run verify:dsh` (it mounts the package into a real harness).
+  id: '@wjunhere/session-synapse',
   factory: require => {
     // `react` is a platform seed of the application's module table (every
     // official client bundle requires it); a view is a React component, so

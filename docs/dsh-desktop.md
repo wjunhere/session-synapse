@@ -61,11 +61,11 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 - 桌面 profile 由 Electron 应用独占，`dsh plugin --profile desktop add …` 会被直接拒绝（`profile "desktop" is managed exclusively by the Electron application`）。
 - app 内那条路径就是宿主插件 `@deepseek-ai/dsh-plugin-manager` 的 `installBundle(spec)`：`spec` 支持 registry 名、git、以及**绝对路径 / `link:`**（`parseInstallSpec`：去掉 `file:`/`link:` 前缀后必须是绝对路径，否则报 `a local path must be absolute`）。它跑 pnpm、写 profile、激活 bundle。
-- 所以本地开发装的是**路径**，不是包名：在安装对话框里填仓库的绝对路径（如 `B:\vibe_program\session-synapse`）。
+- 所以发布后装的是**包名**：在安装对话框里填 `@wjunhere/session-synapse`。本地改代码时装**路径**（仓库的绝对路径，或 `link:<仓库绝对路径>`）。
 
 改完 profile 要重启 app（模块图在启动时建）。
 
-想手改也可以，但要知道 app 会把它改回来：profile 三件套（`package.json` / `cordis.patch.yml` / `pnpm-lock.yaml`）每次改动 app 都会留 `*.bak-<stamp>`，手改必须同时做两件事 —— `dependencies` 加 `"session-synapse": "link:<repo>"`、`dsh.profile.bundles` 追加 `"session-synapse"`，然后用运行时自带的 pnpm 在那个目录装（`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`）。
+想手改也可以，但要知道 app 会把它改回来：profile 三件套（`package.json` / `cordis.patch.yml` / `pnpm-lock.yaml`）每次改动 app 都会留 `*.bak-<stamp>`，手改必须同时做两件事 —— `dependencies` 加 `"@wjunhere/session-synapse": "link:<repo>"`、`dsh.profile.bundles` 追加 `"@wjunhere/session-synapse"`，然后用运行时自带的 pnpm 在那个目录装（`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`）。
 
 `$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh rescue …`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
 
@@ -237,8 +237,8 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 45. **会话文件是多帧 zstd。** `zlib.zstdDecompressSync` 只解**第一帧**（实测 766 KB 的文件只拿到 header 一行）——append-only 日志每段一个 frame，必须逐帧解（DSH 自己用 `NodePrivateZstdFrameDecoder`）。在 host 里读冷会话一律走 `ctx.sessionQuery`，自己解文件只在离线场景用。
 46. **client 插件 apply 时 `document.body` 可能还不存在**（pi-web 那条注入路径踩过同一个坑）。挂 DOM 前先判空，缺了就等 `DOMContentLoaded`。
 47. **client bundle 只能 require 平台种子词**，不能 import 自己的相对模块（没有打包器就不行）。所以 client 半区必须是自足的单文件。
-48. **插件必须在 profile 里用「包的裸名」挂载。** 两处硬要求叠在一起：宿主 loader 按裸名解析模块，而 client 模块图的 `exactPackageSpecifier()` 会拒掉任何带 `/` 的 specifier（`session-synapse/dsh` → 客户端 bundle 永不出现，`/plugins/*` 返回 404，页面上只有宿主 UI 而没有切换条）。所以包的**主入口就得是插件**（与 dsh-synapse / dsh-skill-mcp-panel 同形）：`src/index.js` 在原有库导出之外再 re-export 插件的 `name`/`inject`/`apply`。
-49. **client bundle 的注册 id 是「包名」，不是 patch 里的 entry id。** 客户端模块图的行 id 取自解析到的 package name（`record.entry.id = packageName`），所以 `__ModuleLoader__.load({ id })` 要写 `session-synapse`；写 patch 的 `synapse` 会得到 “bundle loaded without registering …”。
+48. **插件必须在 profile 里用「包的裸名」挂载。** 两处硬要求叠在一起：宿主 loader 按裸名解析模块，而 client 模块图的 `exactPackageSpecifier()` 会拒掉任何带 `/` 的 specifier（`session-synapse/dsh` 这种**子路径** → 客户端 bundle 永不出现，`/plugins/*` 返回 404，页面上只有宿主 UI 而没有切换条；带 scope 的 `@scope/name` 是裸名，合法）。所以包的**主入口就得是插件**（与 dsh-synapse / dsh-skill-mcp-panel 同形）：`src/index.js` 在原有库导出之外再 re-export 插件的 `name`/`inject`/`apply`。包名（现在是 `@wjunhere/session-synapse`）在**四处**必须逐字一致：`package.json` 的 `name`、`cordis.patch.yml` 的 `name`、客户端 bundle 里 `__ModuleLoader__.load({ id })` 的 id（它是模块图的 row id，写错一个字客户端半区就静默不加载）、以及 profile 里那个依赖键。
+49. **client bundle 的注册 id 是「包名」，不是 patch 里的 entry id。** 客户端模块图的行 id 取自解析到的 package name（`record.entry.id = packageName`），所以 `__ModuleLoader__.load({ id })` 要写**完整的包名**（现在是 `@wjunhere/session-synapse`）；写 patch 的 entry id（`synapse`）会得到 “bundle loaded without registering …”。
 50. **`/plugins/<pkg>/client.js` 不是稳定 URL。** 启动图用 combo URL（`/plugins/??a/client.js,b/client.js&rev=…`），直连单资源路径会 404 —— 404 不能当成「客户端半区没加载」，要看首页 HTML 里的 `__DSH_BOOT__`。
 51. **在 `ctx.sessions.list` 的订阅里 retain 会递归。** `retain()`/`release()` 会把引用计数发布到同一张列表快照里（行上的 `retainedBy`），于是在订阅者里调用它就又进一次订阅者 —— 实测 `RangeError: Maximum call stack size exceeded`，由 client store 的 subscriber 抛出，客户端 UI 停在半更新状态。加一个「已在同步中就直接返回」的门就能断环（外层那次会跑完同样的活）。
 52. **另一个进程写的会话，本进程看不见。** `session/created` / `session/event` 只覆盖本进程的事件；DSH 的持久化层没有 watcher，也没有变更事件，所以 `dsh headless`（或第二个 harness）新建/追加的会话在我们这里根本不触发通知 —— 实测：headless 跑完一整轮，画布仍是旧数量。适配器必须自己按 5s 重新列一次语料，只对 `updatedAt` 变了的行重新投影（与 pi 适配器需要轮询是同一个原因：画布不是它所读东西的唯一写入者）。
