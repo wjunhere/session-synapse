@@ -53,6 +53,7 @@ const SUITES = [
   { script: 'verify-session-removal.mjs', browser: false, needsService: true, timeoutMs: 300_000 },
   { script: 'verify-canvas.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-detail-rows.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
+  { script: 'verify-detail-window.mjs', browser: true, needsService: true, timeoutMs: 300_000 },
   { script: 'verify-folding.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-theme.mjs', browser: true, needsService: true, timeoutMs: 180_000 },
   { script: 'verify-ring-levels.mjs', browser: true, needsService: true, timeoutMs: 180_000 },

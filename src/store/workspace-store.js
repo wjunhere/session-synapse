@@ -692,6 +692,12 @@ export class WorkspaceStore {
     // without loading every workspace — the canvas needs exactly that to follow
     // the host's current session across directories. Manual threads have no
     // session, so they contribute nothing.
+    //
+    // `threadsUpdatedAt` is the newest thread-level change, which is not the
+    // same as `updatedAt`: a tool-selection entry moves a thread's own stamp
+    // without touching the workspace's. A consumer that skips work when a
+    // workspace "has not changed" needs both, or a pinned tool set would never
+    // reach the canvas until some message happened to arrive.
     return {
       id: workspace.id,
       kind: workspace.kind ?? 'manual',
@@ -699,6 +705,7 @@ export class WorkspaceStore {
       title: workspace.title,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
+      threadsUpdatedAt: workspace.threads.reduce((newest, thread) => (typeof thread.updatedAt === 'string' && thread.updatedAt > newest ? thread.updatedAt : newest), ''),
       threadCount: workspace.threads.length,
       sessionIds: workspace.threads.flatMap(thread => (typeof thread.sessionId === 'string' ? [thread.sessionId] : [])),
     }

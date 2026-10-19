@@ -17,6 +17,7 @@ import {
   persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistQuickPhrases as saveQuickPhrases, persistSettings as saveSettings,
 } from './storage.js'
 import { hostLabels } from './host-labels.js'
+import { DETAIL_PAGE_SIZE } from './detail-window.js'
 
 export const state = {
   summaries: [], workspace: null, activeId: null, selectedCardId: null, mode: 'canvas', zoom: 1, currentSession: null, sidebarCollapsed: false,
@@ -49,6 +50,11 @@ export const state = {
   expandedMessageIds: new Set(),
   canvasCards: undefined, canvasCardsById: undefined, canvasGraph: undefined, mountedCardIds: new Set(), canvasNeedsCenter: false,
   detailScrollByThread: new Map(), detailThreadId: null, detailTargetCardId: null, detailEntered: false,
+  // How many of the transcript's messages the detail view renders, counting
+  // back from the newest. The host's own conversation page renders the last 50
+  // and offers to load older pages; a canvas that rendered all 923 messages of
+  // a long session blocked the main thread for most of a second on every write.
+  detailVisibleCount: DETAIL_PAGE_SIZE,
 }
 
 export function rememberBranchAnchor(sessionId, cardId) {

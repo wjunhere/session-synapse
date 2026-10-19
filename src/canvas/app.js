@@ -16,6 +16,7 @@ import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, pro
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, CARD_GAP_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
 import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
 import { hostLabels } from './host-labels.js'
+import { DETAIL_PAGE_SIZE, detailWindow } from './detail-window.js'
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 
@@ -32,7 +33,14 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 // `(window).__synapse = …` parses as `'manual'(window)`, which throws
 // `"manual" is not a function` at load time and leaves the canvas blank.
 const debugWindow = /** @type {any} */ (window)
-debugWindow.__synapse = { state }
+/**
+ * What the render loop did, so a probe can tell a poll that changed nothing
+ * (build only) from one that rewrote the document, and see what each cost. The
+ * canvas has no unit-test surface for this: the numbers come from a real browser
+ * in `scripts/verify-detail-perf.mjs`.
+ */
+const renderStats = { renders: 0, writes: 0, lastBuildMs: 0, lastWriteMs: 0 }
+debugWindow.__synapse = { state, stats: renderStats }
 // Card geometry at 100%, and the distance between cards. The user can scale the
 // card (settings panel): the layout is computed in world coordinates, so the
 // size the JS lays out and the size the CSS draws must come from the SAME number
@@ -45,6 +53,27 @@ const BASE_CARD_WIDTH = 310
 const BASE_CARD_HEIGHT = 276
 const CAMERA_INSET_X = 56
 const CAMERA_INSET_Y = 56
+
+/**
+ * The HTML currently in `#app`, so a render that would write the same thing can
+ * skip the DOM work entirely. See the comparison at the end of `render()`.
+ *
+ * @type {string}
+ */
+let lastRenderedHtml = ''
+
+/** The thread the last render showed a transcript for, so the visible window can
+ * reset when the reader moves to another conversation. */
+let detailThreadId = null
+
+/**
+ * The summary of the workspace currently loaded, as of the last fetch.
+ * `refreshProjection` compares against it to decide whether the transcript is
+ * worth re-fetching at all.
+ *
+ * @type {string}
+ */
+let openWorkspaceSignature = ''
 
 /** One card's size in world coordinates, at the user's current scale. */
 const cardWidth = () => Math.round(BASE_CARD_WIDTH * state.settings.cardScale)
@@ -295,7 +324,10 @@ async function refreshSummaries({ renderAfter = true } = {}) {
   const current = state.workspace?.id
   if (state.selectedHostWorkspaceId === null && current !== null && !state.summaries.some(item => item.id === current)) state.workspace = null
   const selected = state.summaries.find(item => item.id === state.selectedHostWorkspaceId)
-  if (selected !== undefined && (changed || state.workspace === null)) await openWorkspace(selected.id, { renderAfter })
+  // A workspace the user is already in is NOT re-fetched just because some other
+  // workspace changed: `refreshProjection` decides that from the open
+  // workspace's own summary. This branch only picks the first workspace.
+  if (state.workspace === null && selected !== undefined) await openWorkspace(selected.id, { renderAfter })
   else if (state.workspace === null) {
     // Nothing has been chosen yet in this page load: the host's current session
     // is the best answer to "where is the user", because in DSH the map has no
@@ -313,19 +345,48 @@ async function openWorkspace(id, { renderAfter = true } = {}) {
   state.selectedHostWorkspaceId = id
   const body = await api(`/synapse/api/workspaces/${id}`)
   if (load !== state.workspaceLoad) return
+  openWorkspaceSignature = summarySignature(id)
   if (state.workspace?.id !== body.workspace.id) resetCanvasCamera()
   state.workspace = body.workspace
-  const currentThread = currentHostThread(state.workspace.threads)
-  state.activeId = currentThread?.id ?? (state.workspace.threads.some(thread => thread.id === state.activeId) ? state.activeId : state.workspace.threads[0]?.id ?? null)
-  if (currentThread !== undefined) revealConversationThread(conversationCards(canvasThreads()), currentThread.id)
+  // Where the reader is comes FIRST. This runs on every projection poll (the
+  // workspace is re-fetched whenever any session file changes), so preferring
+  // the host's thread here yanked the user out of a transcript they had opened
+  // on purpose — measured: reading a /btw side question, the poll pulled the
+  // detail view back to the host's session about a second later. The host's
+  // session still wins when the canvas has nothing of its own to keep (first
+  // load, or a workspace it has just moved to), and a genuine host move is
+  // handled by the `synapse:current-session` message, which knows whether the
+  // session actually changed.
+  const keepActive = state.workspace.threads.some(thread => thread.id === state.activeId)
+  const hostThread = keepActive ? undefined : currentHostThread(state.workspace.threads)
+  state.activeId = keepActive
+    ? state.activeId
+    : hostThread?.id ?? state.workspace.threads[0]?.id ?? null
+  if (hostThread !== undefined) revealConversationThread(conversationCards(canvasThreads()), hostThread.id)
   if (renderAfter && canReplaceView()) render()
 }
 
 async function refreshProjection() {
   const summariesChanged = await refreshSummaries({ renderAfter: false })
   if (!summariesChanged || state.workspace === null || !canReplaceView()) return summariesChanged
+  // The poll is 1 Hz and the summary list is small, but the workspace payload is
+  // the whole transcript: re-fetching and re-building it every second for a
+  // session nobody touched is what made a long conversation stutter (measured on
+  // a 923-message session: 446ms main-thread tasks per poll). A workspace whose
+  // summary is byte-identical cannot have changed — its `updatedAt` and
+  // `threadsUpdatedAt` are the newest change in it.
+  if (summarySignature(state.workspace.id) === openWorkspaceSignature) return summariesChanged
   await openWorkspace(state.workspace.id)
   return true
+}
+
+/**
+ * The change signal for one workspace, from the summary list the poll already
+ * has. Cheap on purpose: it is compared on every poll.
+ */
+function summarySignature(id) {
+  const summary = state.summaries.find(item => item.id === id)
+  return summary === undefined ? '' : JSON.stringify(summary)
 }
 
 /**
@@ -634,7 +695,12 @@ function messagesFor(thread) {
     return messages
   }
   const liveReply = state.liveReplies.get(thread.sessionId)
-  const liveAssistant = liveReply?.running ? { kind: 'assistant', text: liveReply.text, pending: true, at: new Date().toISOString() } : { kind: 'assistant', text: '', pending: true, at: new Date().toISOString() }
+  // The pending assistant's timestamp is the moment the user sent the turn, not
+  // `now`: a timestamp that changes on every render makes the built HTML differ
+  // from the last written one for no reason, which is exactly the rebuild the
+  // streaming path is trying to avoid.
+  const liveAt = new Date(pending.at).toISOString()
+  const liveAssistant = liveReply?.running ? { kind: 'assistant', text: liveReply.text, pending: true, at: liveAt } : { kind: 'assistant', text: '', pending: true, at: liveAt }
   const userIndex = pendingUserIndex(messages, pending)
   if (userIndex !== -1) return [...messages, liveAssistant]
   return [...messages, { kind: 'user', text: pending.text, pending: true, at: new Date(pending.at).toISOString() }, liveAssistant]
@@ -1492,6 +1558,34 @@ function processSummary(text) {
   return text.replace(/\s+/g, ' ').trim().slice(0, 140) || '工具调用记录'
 }
 
+/**
+ * One message's body, shared by the rendered transcript and by the live patch.
+ *
+ * The streaming path writes this string into the DOM without a render, so it has
+ * to produce byte-identical markup to the transcript — otherwise a chunk of the
+ * reply would look different from the same text after the next poll. Hence one
+ * function instead of two copies.
+ */
+function messageBody(message, messageId, collapsible, expanded) {
+  if (message.pending && message.text === '') return '<p class="message-streaming"><span class="streaming-dot"></span>正在回复</p>'
+  const process = Array.isArray(message.process) && message.process.length > 0 ? message.process : null
+  const content = collapsible && !expanded ? `<p class="message-summary">${escapeHtml(processSummary(message.text))}</p>` : renderMarkdown(displayText(message))
+  return `${content}${message.pending ? '<p class="message-streaming"><span class="streaming-dot"></span>正在回复</p>' : ''}${process === null ? '' : processRecords(process, messageId)}`
+}
+
+/**
+ * The source sequence a card id points at, or null when there is no anchor.
+ *
+ * A card id ends in the sequence of its question (`<thread>:turn:<seq>`) and
+ * that sequence is a hex hash (`77e0044c`), NOT a number — a `(\d+)` pattern
+ * silently matches nothing and drops every card onto the latest message.
+ * `:turn:empty` is the placeholder card of a thread with no messages yet.
+ */
+function anchorSequence(cardId) {
+  const match = cardId === null ? null : /:turn:([^:]+)$/.exec(cardId)
+  return match === null || match[1] === 'empty' ? null : match[1]
+}
+
 function threadMessage(thread, message) {
   const isUser = message.kind === 'user'
   const label = isUser ? '你'
@@ -1507,9 +1601,7 @@ function threadMessage(thread, message) {
   const collapsible = isProcessMessage(message)
   const expanded = state.expandedMessageIds.has(messageId)
   const fold = collapsible ? `<button class="message-fold" data-action="toggle-message" data-message="${escapeHtml(messageId)}" aria-label="${expanded ? '收起过程记录' : '展开过程记录'}" title="${expanded ? '收起' : '展开'}">${ICON(`<path d="${ICON_PATHS.chevronRight}"/>`)}</button>` : ''
-  const process = Array.isArray(message.process) && message.process.length > 0 ? message.process : null
-  const body = message.pending && message.text === '' ? '<p class="message-streaming"><span class="streaming-dot"></span>正在回复</p>'
-    : `${collapsible && !expanded ? `<p class="message-summary">${escapeHtml(processSummary(message.text))}</p>` : renderMarkdown(displayText(message))}${message.pending ? '<p class="message-streaming"><span class="streaming-dot"></span>正在回复</p>' : ''}${process === null ? '' : processRecords(process, messageId)}`
+  const body = messageBody(message, messageId, collapsible, expanded)
   const avatar = isUser ? '' : '<span class="message-avatar" aria-hidden="true"></span>'
   return `<article class="message message-${message.kind}${message.pending ? ' message-pending' : ''}${collapsible ? ' message-collapsible' : ''}${expanded ? ' expanded' : ''}" data-message-seq="${typeof message.sourceEntryId === 'string' && message.sourceEntryId !== '' ? message.sourceEntryId : ''}"><header>${avatar}<span class="message-role">${label}</span><time>${formatTime(message.at)}</time>${branch}${fold}</header><div class="message-body">${body}</div></article>`
 }
@@ -1550,13 +1642,31 @@ function messagesForCard(card) {
 function renderThread() {
   const thread = currentThread()
   if (thread === null) return renderCanvas()
-  const messages = messagesFor(thread)
+  // The streaming reply is NOT part of this HTML: it is written straight into the
+  // pending row by `applyLiveReplyToDetail`. Including it here would make the
+  // built string differ on every chunk, so a poll that has nothing else to do
+  // would rewrite a 900-message transcript for every few words of the answer.
+  const all = messagesFor(thread).map(message => message.pending && message.kind === 'assistant' ? { ...message, text: '' } : message)
+  // A window on the transcript's tail, like the host's own conversation page: it
+  // renders the last 50 and offers to load older ones. Rendering all of them was
+  // the single most expensive thing the canvas did (measured on a 923-message
+  // session: 782ms to write the detail view, i.e. a visible freeze on every
+  // change). An explicit anchor — a card click — widens the window back to that
+  // turn, because that is the promise the click makes.
+  const targetSeq = anchorSequence(state.detailTargetCardId)
+  const anchorIndex = targetSeq === null ? null : all.findIndex(message => message.sourceEntryId === targetSeq)
+  const transcript = detailWindow({ total: all.length, visibleCount: state.detailVisibleCount, anchorIndex: anchorIndex === -1 ? null : anchorIndex })
+  const start = transcript.start
+  const messages = all.slice(start)
+  const earlier = transcript.hasEarlier
+    ? `<button class="detail-earlier" data-action="show-earlier">显示更早的 ${Math.min(DETAIL_PAGE_SIZE, start)} 条（还有 ${start} 条）</button>`
+    : ''
   const waiting = state.pendingReplies.has(thread.sessionId)
   const latestAssistantSeq = [...messages].reverse().find(message => typeof message.sourceEntryId === 'string' && message.sourceEntryId !== '')?.sourceEntryId
   // The masthead line reports the transcript's own extent, not a wall clock:
   // the canvas reads session files, so the last entry's timestamp is the only
   // time it can honestly claim.
-  const lastAt = messages.at(-1)?.at
+  const lastAt = all.at(-1)?.at
   const isBtw = thread.kind === 'btw'
   const badge = isBtw ? '侧问' : thread.parentId === null ? '会话' : '分支'
   // A btw thread reports what it may do: the tool set pi-web pinned on it,
@@ -1566,7 +1676,7 @@ function renderThread() {
     : ''
   const usage = contextUsageFor(thread.id)
   const usageLabel = usage === null ? '' : `<span class="detail-usage" title="上下文占用">${usage.percent.toFixed(1)}% · ${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}</span>`
-  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${isBtw ? ' detail-badge-btw' : ''}">${badge}</span>${tools}${usageLabel}${thread.sessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.sessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1><p class="detail-eyebrow">${messages.length} 条记录${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="${state.hostLabels.openIn}此会话">${state.hostLabels.openIn}</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${messages.map(message => threadMessage(thread, message)).join('') || '<div class="note-empty">等待这条会话的第一条消息。</div>'}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
+  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${isBtw ? ' detail-badge-btw' : ''}">${badge}</span>${tools}${usageLabel}${thread.sessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.sessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1><p class="detail-eyebrow">${all.length} 条记录${start === 0 ? '' : ` · 显示最近 ${messages.length} 条`}${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="${state.hostLabels.openIn}此会话">${state.hostLabels.openIn}</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${earlier}${messages.map(message => threadMessage(thread, message)).join('')}${all.length === 0 ? '<div class="note-empty">等待这条会话的第一条消息。</div>' : ''}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
 }
 
 function render() {
@@ -1581,6 +1691,10 @@ function render() {
     if (detail instanceof HTMLElement) state.detailScrollByThread.set(state.detailThreadId, detail.scrollTop)
   }
   state.detailThreadId = state.mode === 'thread' ? state.activeId : null
+  // Reading a different conversation starts at its tail again: the window is
+  // per visit, not a sticky "this user once asked for 800 messages".
+  if (state.detailThreadId !== detailThreadId) state.detailVisibleCount = DETAIL_PAGE_SIZE
+  detailThreadId = state.detailThreadId
   const detailScrollTop = state.detailThreadId === null ? null : state.detailScrollByThread.get(state.detailThreadId) ?? null
   const cardScrollTops = new Map()
   if (state.mode === 'canvas') {
@@ -1630,7 +1744,29 @@ function render() {
   // 嵌入模式（宿主自己有壳）：侧栏、顶栏、视图标签全部不渲染，工具改为浮动簇 ——
   // 留一条横跨顶部的栏就还是「应用套应用」。
   const embedded = state.embedded
-  app.innerHTML = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${state.settingsOpen ? settingsPanel() : ''}${selectionFollowupButton()}</section></main>`
+  const buildStartedAt = performance.now()
+  const html = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${state.settingsOpen ? settingsPanel() : ''}${selectionFollowupButton()}</section></main>`
+  // The projection polls once a second, and every poll that finds a changed
+  // workspace rebuilds this string. Writing it is what costs: parsing a long
+  // transcript's HTML and laying it out again blocked the main thread for
+  // hundreds of milliseconds per poll (measured on a 923-message session: 479ms
+  // tasks, ~2.5s of blocking in 35s), which is what made the detail view
+  // stutter and made a click feel unregistered. When the string is identical to
+  // the one already in the document, nothing can have changed, so the document
+  // is left alone.
+  //
+  // One-shot flags are consumed either way: they belong to the render that
+  // happened, not to the next one.
+  const targetCardId = state.detailTargetCardId
+  state.detailTargetCardId = null
+  const entering = state.detailEntered === true
+  state.detailEntered = false
+  renderStats.renders += 1
+  renderStats.lastBuildMs = Math.round(performance.now() - buildStartedAt)
+  if (html === lastRenderedHtml) return
+  lastRenderedHtml = html
+  const writeStartedAt = performance.now()
+  app.innerHTML = html
   installDragging()
   cacheCardConnectors()
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
@@ -1661,8 +1797,6 @@ function render() {
   // Without an anchor — a btw widget, the detail tab — land on the thread's
   // LATEST message: a transcript that opens at the top makes a long
   // conversation look like it never got answered.
-  const targetCardId = state.detailTargetCardId
-  state.detailTargetCardId = null
   // Landing is a ONE-SHOT action per entry into the transcript. It must not be
   // re-applied on every render: the projection poll re-renders once a second,
   // and a repeated "scroll to the newest message" (the no-anchor fallback)
@@ -1672,12 +1806,8 @@ function render() {
   //
   // `state.detailEntered` is set by whoever opens the detail view and cleared
   // here; later renders only restore the position the user scrolled to.
-  const entering = state.detailEntered === true
-  state.detailEntered = false
   if (scroller instanceof HTMLElement && entering) {
-    const match = targetCardId === null ? null : /:turn:([^:]+)$/.exec(targetCardId)
-    // `:turn:empty` is the placeholder card of a thread with no messages yet.
-    const seq = match === null || match[1] === 'empty' ? null : match[1]
+    const seq = anchorSequence(targetCardId)
     const anchored = seq === null ? null : app.querySelector(`[data-message-seq="${CSS.escape(seq)}"]`)
     const target = anchored ?? [...scroller.querySelectorAll('.message')].at(-1)
     if (target instanceof HTMLElement) {
@@ -1689,6 +1819,8 @@ function render() {
       if (state.detailThreadId !== null) state.detailScrollByThread.set(state.detailThreadId, scroller.scrollTop)
     }
   }
+  renderStats.writes += 1
+  renderStats.lastWriteMs = Math.round(performance.now() - writeStartedAt)
 }
 
 function renderPreservingDetailScroll() {
@@ -2121,6 +2253,19 @@ app.addEventListener('click', async event => {
     }
     if (button.dataset.action === 'show-thread' && thread !== undefined) { state.activeId = thread.id; state.mode = 'thread'; state.detailTargetCardId = button.dataset.card ?? null; state.detailEntered = true; render() }
     if (button.dataset.action === 'show-canvas') { state.mode = 'canvas'; render() }
+    if (button.dataset.action === 'show-earlier') {
+      // The button sits above every message, so clicking it means the reader is
+      // at the top of what was rendered and wants to keep going up. Growing the
+      // window prepends rows, so the view has to FOLLOW the new content — keeping
+      // the reader's offset instead (the usual "don't move the reader" rule for
+      // auto-loading on scroll) would leave the messages they just asked for
+      // thousands of pixels above the viewport, i.e. the click would look like it
+      // did nothing.
+      state.detailVisibleCount += DETAIL_PAGE_SIZE
+      render()
+      const after = document.querySelector('.detail-scroll')
+      if (after instanceof HTMLElement) after.scrollTop = 0
+    }
     if (button.dataset.action === 'toggle-card-children' && button.dataset.card !== undefined) {
       const cardId = button.dataset.card
       const collapsing = !state.collapsedCardIds.has(cardId)
@@ -2270,16 +2415,20 @@ window.addEventListener('message', event => {
   if (data.type === 'synapse:current-session') {
     const previousId = state.currentSession?.id
     state.currentSession = data.session ?? null
-    const moved = previousId !== state.currentSession?.id
+    // Only a host that ACTUALLY moved may move the reader: the message is also
+    // re-sent on the canvas's own `map-ready` (the iframe loads after the bridge
+    // script, so the first post has to be forced), and that re-send used to
+    // overwrite a thread the user had opened by hand.
+    if (previousId === state.currentSession?.id) return
     const thread = currentHostThread()
     if (thread !== undefined) {
       state.activeId = thread.id
       if (state.workspace !== null) revealConversationThread(conversationCards(canvasThreads()), thread.id)
+      if (canReplaceView()) render()
+      return
     }
-    if (!moved) return
     // A session in the OPEN workspace is just the highlight moving; one that is
     // not may live in another directory, and then the map goes there too.
-    if (thread !== undefined) { if (canReplaceView()) render(); return }
     void followHostSession().catch(setError)
     return
   }
@@ -2289,7 +2438,7 @@ window.addEventListener('message', event => {
     if (data.running === true) {
       state.liveReplies.set(data.sessionId, { running: true, text: typeof data.text === 'string' ? data.text : '' })
       if (state.mode === 'canvas') scheduleLiveCardUpdate(data.sessionId)
-      else if (canReplaceView()) scheduleLiveRender()
+      else scheduleLiveDetailUpdate(data.sessionId)
     } else {
       state.liveReplies.delete(data.sessionId)
       // Unmark immediately, whatever render decides to do (see markCardStreaming)
@@ -2358,9 +2507,10 @@ api('/synapse/api/status').then(status => {
 }).catch(() => {})
 refreshSummaries().catch(setError)
 let polling = false
-let liveRenderTimer = 0
 let liveCardFrame = 0
 let liveCardSessionId = null
+let liveDetailFrame = 0
+let liveDetailSessionId = null
 function scheduleLiveCardUpdate(sessionId) {
   // Coalesce streaming chunks to one DOM patch per animation frame.
   liveCardSessionId = sessionId
@@ -2409,12 +2559,44 @@ function applyLiveReplyToCard(sessionId) {
     ? '<p class="thread-answer-pending">正在回复</p>'
     : `${renderMarkdown(text)}<p class="thread-answer-pending">正在回复</p>`
 }
-function scheduleLiveRender() {
-  if (liveRenderTimer !== 0 || !canReplaceView()) return
-  liveRenderTimer = window.setTimeout(() => {
-    liveRenderTimer = 0
-    if (canReplaceView()) renderPreservingDetailScroll()
-  }, 120)
+/**
+ * Write one streaming chunk into the transcript without re-rendering it.
+ *
+ * A reply streams a chunk every few hundred milliseconds; rebuilding a whole
+ * transcript each time is what made a long conversation unusable while it was
+ * being written (and the rebuild is also when a click can be lost). The
+ * transcript already has the pending assistant row at its end, so only its body
+ * changes — same text, same markup as the next poll would produce.
+ *
+ * Nothing to patch means nothing to do: a stream belonging to a session the
+ * reader is not looking at must not touch the document at all.
+ */
+function applyLiveReplyToDetail(sessionId) {
+  if (state.mode !== 'thread' || state.dragging || state.canvasGesture) return
+  const thread = currentThread()
+  if (thread === null || thread.sessionId !== sessionId) return
+  const live = state.liveReplies.get(sessionId)
+  if (live?.running !== true) return
+  const pending = app.querySelectorAll('.detail-scroll .message-pending')
+  const article = pending[pending.length - 1]
+  if (!(article instanceof HTMLElement)) return
+  const body = article.querySelector('.message-body')
+  if (!(body instanceof HTMLElement)) return
+  body.innerHTML = messageBody({ kind: 'assistant', text: live.text, pending: true, at: new Date().toISOString() }, `${thread.id}:streaming`, article.classList.contains('message-collapsible'), false)
+}
+
+function scheduleLiveDetailUpdate(sessionId) {
+  // Coalesce streaming chunks to one DOM patch per animation frame, the same
+  // shape as the map's card update.
+  liveDetailSessionId = sessionId
+  if (liveDetailFrame !== 0) return
+  liveDetailFrame = window.requestAnimationFrame(() => {
+    liveDetailFrame = 0
+    if (liveDetailSessionId === null) return
+    const id = liveDetailSessionId
+    liveDetailSessionId = null
+    applyLiveReplyToDetail(id)
+  })
 }
 async function pollProjection() {
   if (polling || document.hidden || !canReplaceView()) return
