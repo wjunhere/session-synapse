@@ -1,6 +1,6 @@
 {
   "name": "@wjunhere/session-synapse",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
   "type": "module",
   "main": "src/index.js",
@@ -19,7 +19,8 @@
     "docs",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "dsh": {
     "bundle": {

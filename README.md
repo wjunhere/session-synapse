@@ -195,4 +195,5 @@ node scripts/repair-workspaces.mjs ~/.pi/agent/synapse/workspaces.json
 
 ## 许可证
 
-MIT。画布 UI 与投影架构源自 [dsh-synapse](https://github.com/liangmianya/dsh-synapse)（同样 MIT）。
+MIT。画布 UI 与投影架构源自 [dsh-synapse](https://github.com/liangmianya/dsh-synapse)（同样 MIT）；
+随包发布的第三方产物与字体的出处、许可都在 [NOTICE](NOTICE) 里。

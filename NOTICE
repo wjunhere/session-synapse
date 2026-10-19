@@ -1,0 +1,27 @@
+# NOTICE
+
+session-synapse 是 MIT（见 [LICENSE](LICENSE)）。这里记的是许可证正文里不该出现、
+但必须留痕的两件事 —— 放在 LICENSE 里会让 GitHub 认不出这是 MIT。
+
+## 1. 派生自 dsh-synapse
+
+本项目的画布 UI、工作区存储与投影架构源自 [dsh-synapse](https://github.com/liangmianya/dsh-synapse)
+（Copyright (c) dsh-synapse contributors，同样 MIT）。现在的代码已经大改（宿主无关的
+adapter 层、pi-web 与 DSH 两个宿主、投影与存储重写），但那份原始设计是这里的地基。
+
+## 2. 随包发布的第三方构建产物
+
+`src/canvas/vendor/` 里是两份**原样搬运**的构建产物（画布没有打包步骤，也不联网取 CDN），
+两者的许可证都允许这样再分发，各自的完整许可证文本在其上游仓库：
+
+| 文件 | 上游 | 版本 | 许可 |
+|---|---|---|---|
+| `vendor/mermaid.js` | [mermaid](https://github.com/mermaid-js/mermaid) | 11.17.2 | MIT |
+| `vendor/temml.js` | [Temml](https://github.com/ronkok/Temml) | 0.14.0 | MIT |
+
+`src/canvas/fonts/` 里的两个 woff2 同样是随包发布的第三方字体，均为 SIL Open Font License 1.1：
+
+| 文件 | 上游 | 版权声明 |
+|---|---|---|
+| `fonts/geist-latin.woff2` | [vercel/geist-font](https://github.com/vercel/geist-font) | Copyright 2024 The Geist Project Authors |
+| `fonts/newsreader-latin.woff2` | [productiontype/Newsreader](https://github.com/productiontype/Newsreader) | Copyright 2020 The Newsreader Project Authors |
