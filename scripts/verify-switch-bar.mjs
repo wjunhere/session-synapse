@@ -4,12 +4,11 @@
 // 页面里的切换条（`.pi-synapse-switch`）是进入画布的入口。两者同时可见时，屏幕
 // 上会出现两个一模一样的切换控件（且位置不同 x，因为一个是 fixed 居中、一个是
 // 顶栏栅格的中列），实测就是用户看到的样子。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

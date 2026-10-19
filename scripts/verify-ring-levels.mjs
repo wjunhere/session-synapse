@@ -1,9 +1,8 @@
 // 验证圆圈的 warn / danger 阈值配色（真实数据最高只有 61%，测不到这两个档）
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
-const EXE = 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+import { launchBrowser } from './browser.mjs'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1200, height: 800 } })
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(2500)

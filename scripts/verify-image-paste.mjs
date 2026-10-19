@@ -7,7 +7,7 @@
 //   4. 投影保留 imageCount（否则卡片标题会变成空白），且发送后草稿清空
 //
 // 会话与 cwd 都是一次性的，测完由调用方清理。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { mkdir } from 'node:fs/promises'
 import { readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -58,7 +58,6 @@ function crc32(buffer) {
   return (crc ^ 0xffffffff) >>> 0
 }
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 // Overridable like the other probe suites: a provider that answers with an empty
@@ -69,7 +68,7 @@ const PNG_BASE64 = makePng().toString('base64')
 // PROBE_CWD 必须先存在：POST /api/agent/new 对不存在的目录返回 400（不是「代理坏了」）。
 await mkdir(PROBE_CWD, { recursive: true })
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

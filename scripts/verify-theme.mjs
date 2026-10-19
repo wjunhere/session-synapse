@@ -1,9 +1,8 @@
 // M2 验证：pi-web 的主题（含手动覆盖）是否正确传给画布
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
-const EXE = 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+import { launchBrowser } from './browser.mjs'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 
 for (const pref of ['light', 'dark']) {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, colorScheme: 'light' })

@@ -8,6 +8,7 @@
 npm run check          # tsc -p jsconfig.json，基线必须是 0
 npm test               # 138 个单测
 npm run verify         # 全套回归（需 pi-web 在 30100）：起服务 → 24 个套件 → 清理 → 汇总表
+                       # 浏览器由 scripts/browser.mjs 自己找（CHROME_PATH → playwright → ms-playwright 缓存 → 系统 Chrome）
 npm run verify:dsh     # DSH 适配（需 dsh CLI + 凭据）：自己起隔离 harness，44 项
 ```
 

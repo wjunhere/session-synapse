@@ -342,7 +342,7 @@ M0 探测期间对一个真实会话（`01a12375`）产生了副作用，且**�
 1. 一次空消息 `prompt`（`{"type":"prompt","message":""}`）**没有报错**，而是启动了这个会话的 agent run，写入 5 条条目（user + assistant + toolResult + assistant）。
 2. 后续用 `navigate_tree` 修复内存态时，又触发了扩展生命周期条目（`plannotator` / `remote-pi:*`）写入，并造成一个**悬空 `parentId` 引用**（新条目指向已被截断的条目）。
 
-另有一处副作用容易被忽略：探测用的一次性 cwd 目录 `b:\vibe_program\pi-synapse\_probe` **被写进了 pi-web 的 `~/.pi/agent/pi-web-session-state.json` 的 `projectOrder`**（revision 7 → 8），因为它被当成一个真实项目。
+另有一处副作用容易被忽略：探测用的一次性 cwd 目录（`<仓库>/_probe` 那种） **被写进了 pi-web 的 `~/.pi/agent/pi-web-session-state.json` 的 `projectOrder`**（revision 7 → 8），因为它被当成一个真实项目。
 
 **恢复过程与最终状态**：
 
@@ -568,7 +568,7 @@ M4 进度（4 项拆开看）：
 | `npm run verify` 一条命令 + CI | ✅ 已完成（[verification.md](verification.md) §28；CI 只跑 check + test，已在 `wjunhere/pi-synapse` 上跑通） |
 | `app.js` 拆分重构 | 🟡 第一刀完成（[architecture.md](architecture.md) §29：7 个叶子模块 445 行已搬出，2334 → ~1900 行，回归绿）；渲染/交互/动作三层未搬 |
 | DSH adapter / 契约测试 | ⬜ 等用户拍板（两条路：真写 dsh-synapse adapter，或改成跑同一批 store 单测的最小契约测试） |
-| 发布 npm | ✅ 已发布 `@wjunhere/pi-synapse@0.1.0`（2026-10-14，public；裸名 `pi-synapse` 在 registry 上是 Unpublished 状态，故改用作用域包） |
+| 发布 npm | ✅ 已发布（2026-10-14 首发 `@wjunhere/pi-synapse@0.1.0`；裸名 `pi-synapse` 在 registry 上是 Unpublished 状态，故改用作用域包。后来项目改名，现为 `@wjunhere/session-synapse`） |
 
 ### M1 具体任务清单（已按 M0 结论定稿）
 

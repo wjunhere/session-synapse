@@ -161,7 +161,7 @@ process` 用替换后的 `save()` 抛 ENOSPC 来守这条。
    本轮实测磁盘 98% 满（余 6GB），但单独写 80MB 是成功的 —— 所以「磁盘满」不是直接原因。
 4. **列实例要列全，不能只看监听端口的那个**：`wmic process where "name='node.exe'" get
    ProcessId,ParentProcessId,CommandLine`。本轮真正的元凶是**第三个实例**：`-p 30143 --data
-   C:/Users/wjun/AppData/Local/Temp/synapse-branch-probe.json`，来自更早的调试，一直在写自己的
+   <临时目录>/synapse-branch-probe.json`，来自更早的调试，一直在写自己的
    78MB 副本。只 kill 30142 上的监听者永远看不到它，而它会持续抢磁盘与 CPU，表现为「服务时好时坏」。
    用监督进程（`spawn` 包一层，把 exit code / signal / 尾部输出落盘）跑完整套回归，退出计数为 0，
    才排除了「服务自己会死」。

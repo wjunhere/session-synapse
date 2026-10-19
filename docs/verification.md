@@ -34,6 +34,17 @@ npm run verify -- --skip-browser           # 只跑非浏览器套件
 
 **两个回归入口是分开的**，因为世界不同：`npm run verify` 的 24 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
 
+### 浏览器从哪来（`scripts/browser.mjs`）
+
+套件不写死任何人的机器：驱动是 `playwright`（devDependency），浏览器按以下顺序取第一个能用的，`npm run verify` 会把选中的那个打出来：
+
+1. `CHROME_PATH` —— 显式指定一个 Chromium/Chrome 可执行文件（要把一次运行钉在某个二进制上时用）；
+2. `playwright` 自己那版下载的 chromium（`npx playwright install chromium` 装的就是它）；
+3. **ms-playwright 缓存里最新的 `chromium-<rev>`**，不管是谁下载的 —— 缓存是跨 playwright 版本共享的，而 `npm i` 换一次 playwright 版本不应该逼人重新下载 150MB；
+4. 机器上装的 Chrome（`channel: 'chrome'`）。
+
+`PLAYWRIGHT_CORE` 可以指向仓库外的另一个 playwright/playwright-core（路径或 `file://` URL）。套件断言的是 DOM 与几何而不是像素，所以四个都能跑；本仓当前的期望值是在 chromium 1243 上量的（`CHROME_PATH` 可以把它钉回来）。
+
 单独跑某个套件（脚本统一读 `BASE`，默认 `http://127.0.0.1:30143`）：
 
 ```bash
@@ -71,7 +82,7 @@ node scripts/verify-clean-probes.mjs      # clean-probes 自己：不许碰活�
 
 单独跑脚本仍可以，但注意两件事：① `verify-branch` 与 `verify-session-removal` 结束时**会删掉 `PROBE_CWD`**，所以串行跑多个脚本前必须先 `mkdir -p` 回来（harness 在每个套件前重建它；少了这步的表现是 `POST /api/agent/new` 报 `Directory does not exist`，看起来像代理坏了）；② `clean-probes.mjs` 支持 `--data <path>`，把「画布工作区」那半指向隔离文件，会话目录与 pi-web 状态照旧清真实的。
 
-调试截图（`synapse-verify-canvas.png` / `-btw.png` / `-navigation.png` / `-streaming-card.png`）与 `e2e-real-data` 的画布数据都写在**系统临时目录**，跑完不再在仓库根目录积尘（以前它们落在 `_nav.png` / `_btw/` / `_e2e/`，还会因为路径写死 `B:/vibe_program/…` 而在别的机器上直接失败）。
+调试截图（`synapse-verify-canvas.png` / `-btw.png` / `-navigation.png` / `-streaming-card.png`）与 `e2e-real-data` 的画布数据都写在**系统临时目录**，跑完不再在仓库根目录积尘（以前它们落在 `_nav.png` / `_btw/` / `_e2e/`，而且路径写死了本机盘符，在别的机器上直接失败）。
 
 
 ## 28. 一条命令跑全套回归（M4-3，2026-10-14）

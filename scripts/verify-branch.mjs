@@ -17,7 +17,7 @@
  *
  * Writes a real session, so it needs PROBE_CWD and cleans up after itself.
  */
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { mkdir, rm } from 'node:fs/promises'
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
@@ -30,7 +30,7 @@ const probeTitle = PROBE_CWD.split(/[\\/]/).filter(Boolean).at(-1)
 // than on the feature.
 const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 
-const browser = await chromium.launch({ executablePath: 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe', headless: true })
+const browser = await launchBrowser({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1920, height: 1100 } })
 const results = []
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail === '' ? '' : ` — ${detail}`}`) }

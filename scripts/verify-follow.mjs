@@ -17,11 +17,10 @@
  *
  * 需要 PROBE_CWD 与运行中的服务；造两条真会话（两个目录），结束时删掉目录。
  */
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { mkdir, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 if (PROBE_CWD === undefined) { console.log('需要 PROBE_CWD（一次性会话目录）'); process.exit(1) }
@@ -121,7 +120,7 @@ const canvasState = frame => frame.evaluate(() => ({
   hostSession: window.__synapse.state.currentSession?.id ?? null,
 }))
 
-const browser = await chromium.launch({ executablePath: EXE, headless: true })
+const browser = await launchBrowser({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

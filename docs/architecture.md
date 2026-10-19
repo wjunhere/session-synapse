@@ -111,7 +111,7 @@ dsh-synapse 的 `index.js` 把「路由注册 + 业务逻辑」混在一起，�
   "workspaces": [
     {
       "id": "uuid",
-      "title": "B:\\cc_program",   // 默认取 cwd，可改
+      "title": "B:\\work\\proj",   // 默认取 cwd，可改
       "createdAt": "...", "updatedAt": "...",
       "threads": [
         {

@@ -16,11 +16,10 @@
  * 这条规则还会**直接写一个 8 天前的探测会话文件**（没法等七天，而投影读的就是
  * 文件，所以这是真实输入而不是替身），脚本结束时删掉它。
  */
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 if (PROBE_CWD === undefined) { console.log('需要 PROBE_CWD（一次性会话目录）'); process.exit(1) }
@@ -70,7 +69,7 @@ async function probeWorkspaceId() {
   return summary?.id ?? null
 }
 
-const browser = await chromium.launch({ executablePath: EXE, headless: true })
+const browser = await launchBrowser({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

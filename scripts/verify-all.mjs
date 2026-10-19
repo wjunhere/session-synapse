@@ -28,17 +28,16 @@
  * directory is deleted on success and KEPT on failure, with its path printed.
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { resolveBrowser } from './browser.mjs'
 
 const ROOT = process.cwd()
 const PORT = Number(process.env.SYNAPSE_VERIFY_PORT ?? 30143)
 const UPSTREAM = Number(process.env.SYNAPSE_VERIFY_UPSTREAM ?? 30100)
 const BASE = `http://127.0.0.1:${PORT}`
 const UPSTREAM_BASE = `http://127.0.0.1:${UPSTREAM}`
-const CHROME_PATH = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 
 const argv = process.argv.slice(2)
 const SKIP_BROWSER = argv.includes('--skip-browser')
@@ -130,8 +129,16 @@ if (!(await reachable(`${UPSTREAM_BASE}/`))) {
 }
 const selected = SUITES.filter(suite => (ONLY === null || suite.script.includes(ONLY)) && !(SKIP_BROWSER && suite.browser))
 if (selected.length === 0) fatal('没有匹配的套件')
-if (!SKIP_BROWSER && selected.some(suite => suite.browser) && !existsSync(CHROME_PATH)) {
-  fatal(`Chromium 不在 ${CHROME_PATH}（用 CHROME_PATH 指定，或 --skip-browser 只跑非浏览器套件）`)
+// Resolve the browser HERE so a machine without one fails before a service is
+// started, and so every suite's choice is visible in one line (the suites resolve
+// it the same way themselves — `scripts/browser.mjs` documents the order).
+if (!SKIP_BROWSER && selected.some(suite => suite.browser)) {
+  try {
+    const { label } = await resolveBrowser()
+    process.stdout.write(`verify: 浏览器 → ${label}\n`)
+  } catch (error) {
+    fatal(String(error?.message ?? error))
+  }
 }
 if (await reachable(BASE, 500)) fatal(`端口 ${PORT} 上已经有东西在响应；换 SYNAPSE_VERIFY_PORT 或先停掉它`)
 
@@ -209,7 +216,9 @@ try {
     await mkdir(probeCwd, { recursive: true })
     const started = Date.now()
     const run = await runProcess(process.execPath, [join(ROOT, 'scripts', suite.script)], {
-      env: { BASE, PROBE_CWD: probeCwd, CHROME_PATH },
+      // CHROME_PATH (when the caller set one) is inherited through process.env —
+      // see `runProcess`, which merges the parent environment in.
+      env: { BASE, PROBE_CWD: probeCwd },
       timeoutMs: suite.timeoutMs,
       logPath: join(logDir, `${suite.script}.log`),
     })

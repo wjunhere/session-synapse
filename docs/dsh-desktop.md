@@ -7,7 +7,7 @@
 
 ## 1. dsh desktop 是什么（全部实测）
 
-- `D:\dsh\DeepSeek Harness.exe`：Electron 壳 + 内置 dsh 运行时 **0.2.1-rc.2**（在 `resources/app.asar!/dsh`）。
+- `<DSH 安装目录>\DeepSeek Harness.exe`：Electron 壳 + 内置 dsh 运行时 **0.2.1-rc.2**（在 `resources/app.asar!/dsh`）。
 - 壳把 harness 当子进程拉起，命令行是
   `... app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\index.js <dsh 目录> <profile 目录> <runtime 目录>`，
   其中 profile 目录 = `~/.dsh/profiles/desktop`，并给该子进程开 `--inspect=127.0.0.1:9230`（`dsh-experimental-inspector`，CDP target `dsh://host`）。
@@ -43,7 +43,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 ## 3. 数据
 
-- 会话文件：`~/.dsh/sessions/<cwd 编码>--/<session-id>/session.v4.jsonl.zstd`；cwd 编码 `B:\vibe_program` → `--B-vibe_program--`。
+- 会话文件：`~/.dsh/sessions/<cwd 编码>--/<session-id>/session.v4.jsonl.zstd`；cwd 编码把盘符与分隔符写成 `-`，例如 `B:\work\proj` → `--B-work-proj--`。
 - 首行是 header：`{"type":"session","version":4,"id","createdAt","cwd","parentSession","isSeeded","origin","delegationDepth","agentPreset"}`；事件信封是 `{type, seq, time(ms), data}`。
 - **上下文占用不用自己算**：token meter 的会话投影 `contextPressure`（`{pressureTokens, contextWindow, surfaceTokens, claim?}`）就是 DSH 自己界面上的那个数，`ctx.sessionQuery.observeSession(id, {projectionMode:'all'})` 一次拿到；adapter 原样交给 store（`SessionHistory.contextUsage`），store 优先用它、不再跑 pi 那套估算器。
 - 事件词表见 `@deepseek-ai/dsh-session/lib/types/known-event-types.js`（本版 58 种）。投影只认
@@ -65,7 +65,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 
 改完 profile 要重启 app（模块图在启动时建）。
 
-想手改也可以，但要知道 app 会把它改回来：profile 三件套（`package.json` / `cordis.patch.yml` / `pnpm-lock.yaml`）每次改动 app 都会留 `*.bak-<stamp>`，手改必须同时做两件事 —— `dependencies` 加 `"@wjunhere/session-synapse": "link:<repo>"`、`dsh.profile.bundles` 追加 `"@wjunhere/session-synapse"`，然后用运行时自带的 pnpm 在那个目录装（`D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm`）。
+想手改也可以，但要知道 app 会把它改回来：profile 三件套（`package.json` / `cordis.patch.yml` / `pnpm-lock.yaml`）每次改动 app 都会留 `*.bak-<stamp>`，手改必须同时做两件事 —— `dependencies` 加 `"@wjunhere/session-synapse": "link:<repo>"`、`dsh.profile.bundles` 追加 `"@wjunhere/session-synapse"`，然后用运行时自带的 pnpm 在那个目录装（`<DSH 安装目录>/resources/runtime/primary-runtime/dependencies/pnpm`）。
 
 `$DSH_HOME` 可覆盖数据根，所以自动化验证可以起一个**完全隔离的实例**（`DSH_HOME=<tmp> dsh rescue …`），不碰真实会话 —— 与 pi-web 套件的探测纪律同源。
 
@@ -176,17 +176,17 @@ npm run verify:dsh
 
 `scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 44 项（标签入口/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/跟着宿主换工作区/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
 
-标签与设置面板另有独立探针（都自己起隔离 home，跑完删掉）：
+标签与设置面板另有独立探针（都自己起隔离 home，跑完删掉；这些探针是临时写的，不在仓库里）：
 
 ```bash
-node B:/vibe_program/tmp/probe-dsh-tab-settings.mjs   # 15 项：标签出/收画布 + 设置面板三项真的生效
-node B:/vibe_program/tmp/probe-dsh-welcome.mjs        # 诊断：欢迎页的入口与标签行的存在性
+node <探针目录>/probe-dsh-tab-settings.mjs   # 15 项：标签出/收画布 + 设置面板三项真的生效
+node <探针目录>/probe-dsh-welcome.mjs        # 诊断：欢迎页的入口与标签行的存在性
 ```
 
 **它验不到「重启后」**：整个套件活着的是同一个 harness，而 `/btw` 的工具钉正是重启会丢的那一半。那一段在独立探针里（它自己会重启 harness）：
 
 ```bash
-node B:/vibe_program/tmp/probe-dsh-btw.mjs   # 13 项：fork/钉工具/不归档/真模型侧无 pwsh/重启后重钉/归档确实会让它变哑
+node <探针目录>/probe-dsh-btw.mjs   # 13 项：fork/钉工具/不归档/真模型侧无 pwsh/重启后重钉/归档确实会让它变哑
 ```
 
 侧问那一项用一次真模型来证「工具面被砍」：让侧问自己说它有没有 pwsh（宿主把整套工具、含 pwsh，给普通会话，所以「没有 pwsh」只可能是被钉住了）。注意工具**被拒**也会记一条 `tool/call`（`Error: unknown tool`）——判定要看结果是不是 error，不能只看有没有那次调用。
@@ -195,10 +195,10 @@ node B:/vibe_program/tmp/probe-dsh-btw.mjs   # 13 项：fork/钉工具/不归档
 
 ```bash
 # 1) 用临时 home 建一个从官方 web 模板派生的 profile，并把插件装进去
-DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh rescue --from-default-profile web --dump-config
-DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh plugin --profile rescue add link:B:/vibe_program/session-synapse
+DSH_HOME=<临时目录>/dsh-probe dsh rescue --from-default-profile web --dump-config
+DSH_HOME=<临时目录>/dsh-probe dsh plugin --profile rescue add link:<仓库绝对路径>
 # 2) 启动（打印带 token 的 URL）
-DSH_HOME=B:/vibe_program/tmp/dsh-probe dsh rescue --no-open --port 30144
+DSH_HOME=<临时目录>/dsh-probe dsh rescue --no-open --port 30144
 # 3) 断言
 curl -s 127.0.0.1:30144/synapse/api/status     # → {"adapter":"dsh",...}
 curl -s 127.0.0.1:30144/synapse/ | head        # → 画布 HTML
@@ -222,9 +222,9 @@ await composer.click(); await composer.type('写一篇 400 字短文…'); await
 写操作分两层验，两层都跑真宿主：
 
 ```bash
-npm run verify:dsh                                   # 仓库里的套件（推荐）
-node B:/vibe_program/tmp/probe-dsh-writes.mjs        # 页面内 fetch 直接打 /synapse/api/host/*
-node B:/vibe_program/tmp/probe-dsh-ui-writes.mjs     # 真按画布按钮：新建/发消息/分支/改名/归档
+npm run verify:dsh                                # 仓库里的套件（推荐）
+node <探针目录>/probe-dsh-writes.mjs              # 页面内 fetch 直接打 /synapse/api/host/*
+node <探针目录>/probe-dsh-ui-writes.mjs           # 真按画布按钮：新建/发消息/分支/改名/归档
 ```
 
 UI 探针里有两处必须记住的细节：`data-thread` 是**画布线程 id**（不是会话 id，会话 id 形如 `session-<uuid>`）；画布会因投影刷新重渲染，元素句柄会失效，点之前要重新取。第三处是套件里的真问题：**`store()` 读服务端的库，卡片却是从页面自己的 `state.workspace` 渲染的**，两者不同步 —— 刚发出的那轮在页面上可能还带着 pending 占位答案（没有 `sourceEntryId`，就没有分支入口），所以要**轮询等卡片落定**而不是看一眼就断言。

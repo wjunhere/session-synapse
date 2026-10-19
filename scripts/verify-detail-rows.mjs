@@ -1,9 +1,8 @@
 // 验证：详情视图里不会因为「有 usage 无正文」的助手轮次出现空行
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
-const EXE = 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+import { launchBrowser } from './browser.mjs'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } })
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(2500)

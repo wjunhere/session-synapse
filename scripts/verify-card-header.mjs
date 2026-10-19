@@ -6,13 +6,12 @@
 //   1. 标题被裁剪在卡片内（长标题出省略号，而不是撑到 1126px 冲出卡片）
 //   2. 标题给右上角的上下文圆环让出位置
 //   3. 标题前的分类圆点有实际宽度（不是 0）
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const MIN_RING_GAP = 4
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

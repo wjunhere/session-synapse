@@ -1,9 +1,8 @@
 // M2 验证：分支折叠（折叠/展开后续对话子树）
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
-const EXE = 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
+import { launchBrowser } from './browser.mjs'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const errors = []
 page.on('pageerror', e => errors.push(e.message))

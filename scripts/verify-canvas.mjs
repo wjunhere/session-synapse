@@ -1,13 +1,10 @@
 // 用真实浏览器验证画布：注入的切换条、iframe 内的画布、卡片渲染。
-// playwright-core 来自全局 @playwright/mcp。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
-// 用已下载的 chromium 实体，避免 headless_shell 版本不匹配
-const EXECUTABLE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
-const browser = await chromium.launch({ executablePath: EXECUTABLE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

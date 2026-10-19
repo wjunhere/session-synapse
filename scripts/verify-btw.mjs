@@ -1,11 +1,10 @@
 // 验证 #1 上下文圆圈 + #2 /btw 侧问（fork + 只读工具 + 自动归档）
 //
 // 全部操作都在一次性会话上做；脚本只读地报告，清理由调用方完成。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 // The probe model is overridable for the same reason as in verify-streaming-card:
@@ -20,7 +19,7 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === '' ? '' : `  — ${detail}`}`)
 }
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

@@ -11,14 +11,13 @@
 //
 // 只有卡片**完整落在视口内**才能做鼠标操作：卡片是虚拟化的，视口外的卡仍在 DOM 里但
 // 坐标在屏幕外，拿它按鼠标谁也点不到（这条坑让第一版探针全程 offset=0 假绿）。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

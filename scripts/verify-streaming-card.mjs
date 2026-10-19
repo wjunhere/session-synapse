@@ -5,19 +5,18 @@
 //
 // 注意：验证的是浏览器里真实可见的计算样式，不是类名本身 —— 类挂上了但 CSS
 // 没写（或被动画层覆盖）同样是坏的。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 // PROBE_CWD 必须先存在：POST /api/agent/new 对不存在的目录返回 400（不是「代理坏了」）。
 await mkdir(PROBE_CWD, { recursive: true })
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

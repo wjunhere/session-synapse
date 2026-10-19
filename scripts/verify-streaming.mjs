@@ -2,14 +2,13 @@
 //
 // live-reply 消息由 pi-web 侧 bridge 发往画布 iframe，所以必须在 iframe 内监听。
 // 用一次性会话（唯一临时 cwd）触发真实流式回复，结束后彻底清理。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 
-const EXE = 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
 const MODEL = { provider: 'trae', modelId: 'DeepSeek-V4-Flash' }
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))

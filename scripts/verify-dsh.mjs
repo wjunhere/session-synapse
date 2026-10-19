@@ -12,7 +12,7 @@
  * 只能验证替身。
  *
  * 重启之后的行为不在这里：整个套件活着的是同一个 harness。`/btw` 那半的进程重启
- * 验证在 `B:/vibe_program/tmp/probe-dsh-btw.mjs`（它自己会重启 harness）。
+ * 验证在一个临时探针里（它自己会重启 harness，不进仓库）。
  *
  * 前置条件（缺一个就直接报错退出，不降级）：
  *   - `dsh` 在 PATH 上（`@deepseek-ai/dsh` CLI）
@@ -33,8 +33,7 @@ import { join, resolve } from 'node:path'
 const ROOT = process.cwd()
 const PORT = Number(process.env.DSH_VERIFY_PORT ?? 30145)
 const BASE = `http://127.0.0.1:${PORT}`
-const CHROME_PATH = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
-const PLAYWRIGHT = process.env.PLAYWRIGHT_CORE ?? 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser, resolveBrowser } from './browser.mjs'
 const HOME = join(tmpdir(), `_dsh-verify-${Date.now()}`)
 
 const results = []
@@ -100,8 +99,7 @@ if (token === undefined) { await cleanup({ keep: true }); fatal(`120s 内没有�
 // ---------------------------------------------------------------------------
 // 浏览器断言
 // ---------------------------------------------------------------------------
-const { chromium } = await import(PLAYWRIGHT)
-const browser = await chromium.launch({ executablePath: CHROME_PATH })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 const pageErrors = []
 page.on('console', message => { if (message.type() === 'error') pageErrors.push(message.text().slice(0, 200)) })

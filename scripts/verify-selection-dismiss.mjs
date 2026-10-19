@@ -9,14 +9,13 @@
 // 只藏按钮而留着高亮，用户看到的仍然是「选了字、取消不掉」——这正是本套件要
 // 防的退化（空白处点击时画布的拖拽手势会 preventDefault，而那个默认行为恰好
 // 就是浏览器用来取消选区的）。
-import { chromium } from 'file:///D:/Nodejs/node_global/node_modules/@playwright/mcp/node_modules/playwright-core/index.mjs'
+import { launchBrowser } from './browser.mjs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 
-const browser = await chromium.launch({ executablePath: EXE })
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } })
 const errors = []
 page.on('pageerror', e => errors.push('pageerror: ' + e.message))
