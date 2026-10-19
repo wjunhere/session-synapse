@@ -95,9 +95,14 @@
   const currentSessionId = () => new URLSearchParams(location.search).get('session')
   let lastSessionId = null
 
-  function postCurrent() {
+  // The canvas iframe loads AFTER this script runs, so the first post can land in
+  // a document with no listener yet — hence `force` on the canvas's own
+  // `map-ready`, the one moment we know it is listening. Without it the canvas
+  // never learns the host's current session on a first load: the guard below
+  // suppresses every repeat until the URL changes.
+  function postCurrent(force = false) {
     const id = currentSessionId()
-    if (id === lastSessionId) return
+    if (id === lastSessionId && !force) return
     lastSessionId = id
     send('synapse:current-session', { session: typeof id === 'string' && id !== '' ? { id } : null })
   }
@@ -225,7 +230,7 @@
     if (data === null || typeof data !== 'object' || data.source !== CHILD_SOURCE) return
     if (data.type === 'synapse:map-ready') {
       postTheme()
-      postCurrent()
+      postCurrent(true)
       void syncRunning()
       return
     }

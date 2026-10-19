@@ -688,7 +688,20 @@ export class WorkspaceStore {
   }
 
   summary(workspace) {
-    return { id: workspace.id, kind: workspace.kind ?? 'manual', cwd: workspace.cwd ?? null, title: workspace.title, createdAt: workspace.createdAt, updatedAt: workspace.updatedAt, threadCount: workspace.threads.length }
+    // `sessionIds` is how a consumer answers "which workspace holds this session?"
+    // without loading every workspace — the canvas needs exactly that to follow
+    // the host's current session across directories. Manual threads have no
+    // session, so they contribute nothing.
+    return {
+      id: workspace.id,
+      kind: workspace.kind ?? 'manual',
+      cwd: workspace.cwd ?? null,
+      title: workspace.title,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+      threadCount: workspace.threads.length,
+      sessionIds: workspace.threads.flatMap(thread => (typeof thread.sessionId === 'string' ? [thread.sessionId] : [])),
+    }
   }
 }
 

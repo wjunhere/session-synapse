@@ -28,7 +28,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const ROOT = process.cwd()
 const PORT = Number(process.env.DSH_VERIFY_PORT ?? 30145)
@@ -511,6 +511,39 @@ try {
     const canvasError = await frame().evaluate(() => window.__synapse?.state.error ?? '')
     check('归档落进 DSH 的归档集', before === false && archivedInHost().includes(targetSession), `session=${targetSession}${canvasError === '' ? '' : ' 画布报错：' + canvasError}`)
   }
+
+  // H2. 画布跟着宿主的会话换工作区
+  //
+  // 用户报过：在宿主里切到另一个目录的会话，画布还停在上一个工作区 —— 画布只在
+  // 宿主的会话真的变了时跟随，而首次加载时宿主那条 current-session 消息发早了
+  // （iframe 还没装监听），画布根本不知道宿主在哪。这里用画布→宿主那条桥消息
+  // （卡片上的「DSH」按钮发的就是它）把宿主带到另一个目录的会话上。
+  const otherCwd = join(HOME, 'other-workspace')
+  mkdirSync(otherCwd, { recursive: true })
+  const otherSession = await page.evaluate(async cwd => {
+    const made = await (await fetch('/synapse/api/host/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd }) })).json()
+    await fetch('/synapse/api/host/prompt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: made.sessionId, text: '只回答一个词：好的' }) })
+    return made.sessionId
+  }, otherCwd)
+  // 等投影把新目录变成工作区（投影是异步的，而画布只在工作区列表里找得到这条
+  // 会话时才跟得过去）。
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await sleep(1_500)
+    const known = await page.evaluate(async cwd => {
+      const list = await (await fetch('/synapse/api/workspaces')).json()
+      return list.workspaces.some(workspace => String(workspace.cwd ?? '').toLowerCase() === cwd.toLowerCase())
+    }, otherCwd)
+    if (known) break
+  }
+  const cwdBeforeFollow = await frame().evaluate(() => window.__synapse.state.workspace?.cwd ?? null)
+  await frame().evaluate(id => window.parent.postMessage({ source: 'synapse', type: 'synapse:open-session', sessionId: id }, window.location.origin), otherSession)
+  let followed = null
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(1_500)
+    followed = await frame().evaluate(() => ({ cwd: window.__synapse.state.workspace?.cwd ?? null, host: window.__synapse.state.currentSession?.id ?? null }))
+    if (followed.host === otherSession && resolve(followed.cwd ?? '') === resolve(otherCwd)) break
+  }
+  check('宿主换到另一个目录的会话：画布跟着换工作区', followed?.host === otherSession && resolve(followed.cwd ?? '') === resolve(otherCwd), `${cwdBeforeFollow} → ${followed?.cwd ?? null}`)
 
   // H. 宿主拒绝要带原文（画布能自己修的问题不该显示成服务器故障）
   //

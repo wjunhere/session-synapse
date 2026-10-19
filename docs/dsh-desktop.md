@@ -75,6 +75,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 |---|---|---|
 | 按钮/文案 | `src/canvas/host-labels.js` 的 `pi-web` 行 | 同文件的 `dsh` 行（由 `/synapse/api/status` 的 `adapter` 选行；未拿到之前显示中性文案） |
 | 打开会话 | `?session=` 整页导航（父页面做） | `ctx.uiWorkspace.openSession(id)`（client 半区处理 `synapse:open-session`） |
+| 画布显示哪个工作区 | 侧栏里自己选（画布就是导航） | **跟着宿主的会话走**：宿主换到另一个目录的会话，地图就跟着换过去（地图里没有工作区下拉）。靠 `synapse:current-session` 推过来，只有 id 真的变了才动 |
 | 运行中/流式 | 父页面订阅 pi-web 的 SSE | client 半区保留 running 会话的引用，读它 event window 里的 `assistant/live-chunk`（`text-delta` 拼接） |
 | 主题 | `documentElement.dataset.theme` / `dark` class | `body[data-ds-dark-theme]`（client 半区转成 `synapse:theme`） |
 | 写操作（新建/发消息/分支/改名/归档） | 浏览器直接调 pi-web 的 `/api/*`（pi-web 要求 `Origin` 等于自己的 `Host`，只有页面能发） | 画布调 `/synapse/api/host/*`，插件在本进程内调 harness 服务（`ctx.sessionController` / `ctx.workspaceController`） |
@@ -173,7 +174,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 npm run verify:dsh
 ```
 
-`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 43 项（标签入口/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 44 项（标签入口/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/跟着宿主换工作区/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
 
 标签与设置面板另有独立探针（都自己起隔离 home，跑完删掉）：
 
@@ -253,3 +254,4 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 62. **工具限制是 agent 作用域上的效应，不是会话状态。** `tools.restrict({allow})` 挂在 `agent.ctx` 上（不是写进会话日志），所以：① 进程重启后就没了，得在 `agent/created` 上重新钉（§5.3）；② 注册在 agent 自己那层上的工具不受它影响（实测钉 read/grep/glob 后 `subagent` 仍在），把这些名字写进 `allow` 会被当场拒绝——所以 chips 的候选只能是 `view(agent).restrictableNames`（状态接口里叫 `pinnableTools`），`schemas(agent)` 只能用来报「这个会话实际看得见什么」（`tools`）；把后者当选项清单就是把「摆一个必然失败的选择」当成功能；③ `{allow: []}` 是 no-op 而不是「全不给」，空清单必须自己拒。
 63. **宿主的 `[role="tablist"]` 不止一个，而「有当前会话」不等于「有标签行」。** 侧栏自己就是一排 tab（实测 `_tabStrip_…`），所以「任何 tablist」不是要问的问题；而欢迎页会为自己的输入框保留一个会话、却不渲染会话标签行（实测：`tabs: []` 但 `currentSessionId()` 非空）。所以：① 认「哪一排里有我们自己注册的标签」（`conversationTabList()`）；② 浮动胶囊的显示条件看 DOM，不看会话 id。搞错的症状是欢迎页的入口消失，而地图没有其它入口。
 64. **标签是宿主的状态，画布不能自己藏遮罩就完事。** 点 对话 是宿主切标签，我们只会在视图卸载时收遮罩；但欢迎页浮动胶囊打开的那层遮罩**没有任何东西会卸载它**（地图视图从没被挂载过），于是切到会话后画布还盖在对话上（实测：套件点输入框被 iframe 拦住，30s 超时）。两条修法合起来才完整：`syncMapWithHost()`（标签行说当前不是地图 → 收遮罩）与 `leaveMap()`（只有真的渲染了标签行的宿主才由它接管，否则自己收）。
+65. **`postCurrent` 的去重会把首次加载需要的那一条吃掉。** 画布 iframe 是在插件 apply **之后**才加载的，`apply` 末尾那条 `synapse:current-session` 落在还没装监听的文档上就没了；而 `if (id === lastSessionId) return` 让 `map-ready` 时的重发也变成 no-op —— 于是画布永远不知道宿主在哪（用户看到的：地图固定在某个工作区不动）。修法：`postCurrent(force)`，`map-ready` 那一处强制发（`bridge.js` 与 `client.js` 两处都有这个坑，一起修了）。

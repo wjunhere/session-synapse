@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, DEFAULT_SETTINGS, RECENT_DAYS_CHOICES, normalizeSettings } from '../src/canvas/storage.js'
+import { CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, CARD_GAP_RANGE, DEFAULT_SETTINGS, RECENT_DAYS_CHOICES, normalizeSettings } from '../src/canvas/storage.js'
 
 /**
  * The settings value set is the one thing in the panel that is not a pure UI
@@ -21,7 +21,7 @@ test('a missing or broken value falls back to the defaults', () => {
 })
 
 test('a stored value is honoured when it is legal', () => {
-  assert.deepEqual(normalizeSettings({ cardScale: 1.2, cardFontScale: 1.1, recentDays: 14 }), { cardScale: 1.2, cardFontScale: 1.1, recentDays: 14 })
+  assert.deepEqual(normalizeSettings({ cardScale: 1.2, cardFontScale: 1.1, cardGap: 64, recentDays: 14 }), { cardScale: 1.2, cardFontScale: 1.1, cardGap: 64, recentDays: 14 })
 })
 
 test('a number outside its range is clamped, not rejected', () => {
@@ -34,6 +34,12 @@ test('a number outside its range is clamped, not rejected', () => {
   // A non-number is not a small number: it is missing.
   assert.equal(normalizeSettings({ cardScale: '1.2' }).cardScale, DEFAULT_SETTINGS.cardScale)
   assert.equal(normalizeSettings({ cardFontScale: Number.NaN }).cardFontScale, DEFAULT_SETTINGS.cardFontScale)
+  assert.equal(normalizeSettings({ cardGap: 4_000 }).cardGap, CARD_GAP_RANGE[1])
+  assert.equal(normalizeSettings({ cardGap: -20 }).cardGap, CARD_GAP_RANGE[0])
+  assert.equal(normalizeSettings({ cardGap: 'wide' }).cardGap, DEFAULT_SETTINGS.cardGap)
+  // The gap is a pixel count the layout rounds anyway; a fractional one from a
+  // hand-edited entry must not reach the world coordinates.
+  assert.equal(normalizeSettings({ cardGap: 41.7 }).cardGap, 42)
 })
 
 test('the recent-activity window is one of the offered choices', () => {
@@ -50,5 +56,5 @@ test('unknown keys never reach the stored value', () => {
   // The panel posts one `data-setting` name per control; a typo there must not
   // grow the settings object (the sliders are keyed by those names).
   const settings = normalizeSettings({ cardScale: 1, whatever: 'x' })
-  assert.deepEqual(Object.keys(settings).sort(), ['cardFontScale', 'cardScale', 'recentDays'])
+  assert.deepEqual(Object.keys(settings).sort(), ['cardFontScale', 'cardGap', 'cardScale', 'recentDays'])
 })

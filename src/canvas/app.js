@@ -13,7 +13,7 @@ import { escapeHtml, displayText, laneColor, formatTime, formatTokens, contextRi
 import { inlineMarkdown, renderMarkdown } from './markdown.js'
 import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON, GEAR_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
-import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
+import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, CARD_GAP_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
 import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
 import { hostLabels } from './host-labels.js'
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
@@ -33,19 +33,24 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 // `"manual" is not a function` at load time and leaves the canvas blank.
 const debugWindow = /** @type {any} */ (window)
 debugWindow.__synapse = { state }
-// Card geometry at 100%. The user can scale it (settings panel): the layout is
-// computed in world coordinates, so the size the JS lays out and the size the
-// CSS draws must come from the SAME number — hence the functions below rather
-// than constants, and the `--card-w` / `--card-h` variables they also publish.
+// Card geometry at 100%, and the distance between cards. The user can scale the
+// card (settings panel): the layout is computed in world coordinates, so the
+// size the JS lays out and the size the CSS draws must come from the SAME number
+// — hence the functions below rather than constants, and the `--card-w` /
+// `--card-h` variables they also publish. The gap is its own setting and is NOT
+// derived from the card size: growing a card must not silently eat the space
+// around it (the horizontal step used to be a fixed 365px, so a card wider than
+// that overlapped its neighbour the moment 整理 re-laid the map out).
 const BASE_CARD_WIDTH = 310
 const BASE_CARD_HEIGHT = 276
-const CARD_GAP_Y = 42
 const CAMERA_INSET_X = 56
 const CAMERA_INSET_Y = 56
 
 /** One card's size in world coordinates, at the user's current scale. */
 const cardWidth = () => Math.round(BASE_CARD_WIDTH * state.settings.cardScale)
 const cardHeight = () => Math.round(BASE_CARD_HEIGHT * state.settings.cardScale)
+/** The gap between two cards, in world coordinates, as the user set it. */
+const cardGap = () => state.settings.cardGap
 // Cards outside the viewport (plus this world-space margin) are not mounted
 // into the DOM; the margin pre-mounts cards just before they scroll into view
 // so panning never flashes empty space.
@@ -252,7 +257,19 @@ function currentHostThread(threads = state.workspace?.threads ?? []) {
 // pi has one workspace layer: the projection groups sessions by cwd. The
 // sidebar therefore lists the projection workspaces directly.
 function workspaceChoices() {
-  return state.summaries.map(workspace => ({ id: workspace.id, title: workspace.title, path: workspace.cwd, sessionIds: [], source: 'projection' }))
+  return state.summaries.map(workspace => ({ id: workspace.id, title: workspace.title, path: workspace.cwd, sessionIds: workspace.sessionIds ?? [], source: 'projection' }))
+}
+
+/**
+ * Which workspace a session belongs to, per the projection's own grouping.
+ *
+ * Answered from the workspace list rather than by loading every workspace: the
+ * summary carries each one's `sessionIds`, which is the whole mapping the canvas
+ * needs to follow the host across directories.
+ */
+function workspaceIdForSession(sessionId) {
+  if (typeof sessionId !== 'string') return null
+  return state.summaries.find(workspace => (workspace.sessionIds ?? []).includes(sessionId))?.id ?? null
 }
 
 /**
@@ -280,7 +297,12 @@ async function refreshSummaries({ renderAfter = true } = {}) {
   const selected = state.summaries.find(item => item.id === state.selectedHostWorkspaceId)
   if (selected !== undefined && (changed || state.workspace === null)) await openWorkspace(selected.id, { renderAfter })
   else if (state.workspace === null) {
-    const fallback = defaultWorkspaceId()
+    // Nothing has been chosen yet in this page load: the host's current session
+    // is the best answer to "where is the user", because in DSH the map has no
+    // workspace picker at all — a map that opened on the most recently touched
+    // directory while the host sits in another one is simply showing the wrong
+    // place. Most-recent remains the fallback for a host with no session open.
+    const fallback = workspaceIdForSession(state.currentSession?.id) ?? defaultWorkspaceId()
     if (fallback !== null) await openWorkspace(fallback)
   } else if (renderAfter && changed && canReplaceView()) render()
   return changed
@@ -304,6 +326,43 @@ async function refreshProjection() {
   if (!summariesChanged || state.workspace === null || !canReplaceView()) return summariesChanged
   await openWorkspace(state.workspace.id)
   return true
+}
+
+/**
+ * Show the workspace the host's current session lives in.
+ *
+ * The map is a view of where the user is, and the host owns that: in DSH there
+ * is no workspace picker inside the map at all, so a map still sitting on the
+ * previous directory is showing the wrong place (and the session's card is not
+ * even on screen to be highlighted). This runs when the host's session CHANGES,
+ * never on a re-sent id — a workspace the user picked by hand stays put until the
+ * host actually moves.
+ *
+ * A session the projection has not caught up with yet (just created, or created
+ * in a directory the canvas has never seen) has no workspace to move to: the list
+ * is refreshed once and looked at again, and if it is still unknown the canvas
+ * stays where it is rather than guessing.
+ */
+async function followHostSession() {
+  const sessionId = state.currentSession?.id
+  if (typeof sessionId !== 'string') return
+  // The host's session message can beat the canvas's own first load. Then there
+  // is no workspace yet, which means the initial choice has not been made — and
+  // `refreshSummaries` makes it from this very session (see the fallback there).
+  // Bailing out here instead is how the map ended up on "most recently active"
+  // for good whenever the session arrived first.
+  if (state.workspace === null) {
+    await refreshSummaries({ renderAfter: true })
+    return
+  }
+  if (currentHostThread() !== undefined) return
+  let target = workspaceIdForSession(sessionId)
+  if (target === null) {
+    await refreshSummaries({ renderAfter: false })
+    target = workspaceIdForSession(sessionId)
+  }
+  if (target === null || target === state.workspace?.id) return
+  await openWorkspace(target)
 }
 
 function openNewSession() {
@@ -601,7 +660,7 @@ function firstAvailableCardPosition(position, occupied) {
   while (true) {
     const collisions = occupied.filter(other => overlapsCard(candidate, other))
     if (collisions.length === 0) return candidate
-    candidate.y = Math.max(...collisions.map(other => other.y + cardHeight() + CARD_GAP_Y))
+    candidate.y = Math.max(...collisions.map(other => other.y + cardHeight() + cardGap()))
   }
 }
 
@@ -717,13 +776,13 @@ function layoutConversationGraph(cards, threads) {
   const positioned = new Map()
   const positionFor = (card, visiting = new Set()) => {
     if (positioned.has(card.id)) return positioned.get(card.id)
-    if (visiting.has(card.id)) return { x: 86, y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + CARD_GAP_Y) }
+    if (visiting.has(card.id)) return { x: 86, y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + cardGap()) }
     visiting.add(card.id)
     const parent = card.parentId === null ? undefined : byId.get(card.parentId)
     const parentPosition = parent === undefined ? undefined : positionFor(parent, visiting)
     const position = {
-      x: parentPosition === undefined ? 86 : parentPosition.x + 365,
-      y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + CARD_GAP_Y),
+      x: parentPosition === undefined ? 86 : parentPosition.x + cardWidth() + cardGap(),
+      y: 82 + (laneByThread.get(card.hostThreadId) ?? 0) * (cardHeight() + cardGap()),
     }
     visiting.delete(card.id)
     positioned.set(card.id, position)
@@ -766,7 +825,7 @@ function conversationCards(threads) {
       const id = `${thread.id}:turn:${question.sourceEntryId ?? messageIndex}`
       const previous = turns.at(-1)
       const positionKey = `${thread.id}:turn-index:${turnIndex}`
-      const naturalPosition = previous === undefined ? { x: 86, y: 82 } : { x: previous.naturalPosition.x + 365, y: previous.naturalPosition.y }
+      const naturalPosition = previous === undefined ? { x: 86, y: 82 } : { x: previous.naturalPosition.x + cardWidth() + cardGap(), y: previous.naturalPosition.y }
       const savedPosition = state.cardPositions?.get(id) ?? state.cardPositions?.get(positionKey)
       const positionLocked = savedPosition !== undefined
       const position = positionLocked ? savedPosition : naturalPosition
@@ -1082,7 +1141,13 @@ function applySettings() {
   root.setProperty('--card-font-scale', String(state.settings.cardFontScale))
 }
 
-/** One range row of the settings panel. */
+/**
+ * One range row of the settings panel.
+ *
+ * Ranges are stored as integers in hundredths so that one markup shape serves
+ * every row (a 100%-based value like the card scale, and an absolute pixel value
+ * like the gap).
+ */
 function settingsRange(setting, label, [min, max], value, display) {
   return `<label class="settings-row"><span class="settings-row-label">${label}</span><input type="range" data-setting="${setting}" min="${Math.round(min * 100)}" max="${Math.round(max * 100)}" step="5" value="${Math.round(value * 100)}" aria-label="${label}"><span class="settings-row-value" data-setting-value="${setting}">${display}</span></label>`
 }
@@ -1095,9 +1160,9 @@ function settingsRange(setting, label, [min, max], value, display) {
  * `change`) for the sliders and a value readout beside each one.
  */
 function settingsPanel() {
-  const { cardScale, cardFontScale, recentDays } = state.settings
+  const { cardScale, cardFontScale, cardGap, recentDays } = state.settings
   const days = RECENT_DAYS_CHOICES.map(choice => `<button type="button" class="settings-choice${choice === recentDays ? ' is-on' : ''}" data-action="set-recent-days" data-days="${choice}" aria-pressed="${choice === recentDays}">${choice === 0 ? '不限' : `${choice} 天`}</button>`).join('')
-  return `<section class="settings-panel" data-settings-panel role="dialog" aria-modal="true" aria-label="画布设置"><header class="settings-head"><strong>画布设置</strong><button type="button" data-action="close-settings" aria-label="关闭" title="关闭">${closeIcon()}</button></header><div class="settings-body">${settingsRange('cardScale', '卡片大小', CARD_SCALE_RANGE, cardScale, `${Math.round(cardScale * 100)}%`)}${settingsRange('cardFontScale', '卡片字体', CARD_FONT_SCALE_RANGE, cardFontScale, `${Math.round(cardFontScale * 100)}%`)}<div class="settings-row"><span class="settings-row-label">显示天数</span><div class="settings-choices" role="group" aria-label="一个会话默认显示多少天内的卡片">${days}</div></div><p class="settings-note">卡片大小只改卡片本身，已有卡片的位置不动 —— 叠在一起就点右下角的「整理」重排。设置存在本机，对每个工作区都生效。</p></div></section>`
+  return `<section class="settings-panel" data-settings-panel role="dialog" aria-modal="true" aria-label="画布设置"><header class="settings-head"><strong>画布设置</strong><button type="button" data-action="close-settings" aria-label="关闭" title="关闭">${closeIcon()}</button></header><div class="settings-body">${settingsRange('cardScale', '卡片大小', CARD_SCALE_RANGE, cardScale, `${Math.round(cardScale * 100)}%`)}${settingsRange('cardFontScale', '卡片字体', CARD_FONT_SCALE_RANGE, cardFontScale, `${Math.round(cardFontScale * 100)}%`)}${settingsRange('cardGap', '卡片间距', CARD_GAP_RANGE, cardGap, `${cardGap}px`)}<div class="settings-row"><span class="settings-row-label">显示天数</span><div class="settings-choices" role="group" aria-label="一个会话默认显示多少天内的卡片">${days}</div></div><p class="settings-note">卡片大小与间距只改新摆出来的位置，已经拖过的卡片不动 —— 叠在一起就点右下角的「整理」按新尺寸重排。设置存在本机，对每个工作区都生效。</p></div></section>`
 }
 
 function draftActions(draft) {
@@ -1211,7 +1276,7 @@ function draftPlacement(cards) {
     ? cards.filter(card => card.hostThreadId === draft.parentId).at(-1)
     : cards.find(card => card.id === draft.anchorId)
   if (parent === undefined) return null
-  return { parent, position: firstAvailableCardPosition({ x: parent.position.x + 365, y: parent.position.y }, cards.map(card => card.position)) }
+  return { parent, position: firstAvailableCardPosition({ x: parent.position.x + cardWidth() + cardGap(), y: parent.position.y }, cards.map(card => card.position)) }
 }
 
 /** Where the Nth btw widget sits: a compact row just below the parent card. */
@@ -1941,12 +2006,21 @@ document.addEventListener('selectionchange', queueSelectionFollowup)
 // (`change`): a full render() per input event would rebuild the panel under the
 // user's finger and drop the drag. `change` also fires for a keyboard-driven
 // range change, which is the case where the redraw is the whole feedback.
+//
+// Every slider is stored as hundredths, so one markup shape serves both a
+// 100%-based value and an absolute pixel one; the readout is what differs, which
+// is why each setting names its own unit.
+const SETTING_READOUT = {
+  cardScale: value => `${Math.round(value * 100)}%`,
+  cardFontScale: value => `${Math.round(value * 100)}%`,
+  cardGap: value => `${Math.round(value)}px`,
+}
 function applySettingInput(input) {
   const setting = input.dataset.setting
   const settings = updateSettings({ [setting]: Number(input.value) / 100 })
   applySettings()
   const readout = document.querySelector(`[data-setting-value="${setting}"]`)
-  if (readout !== null) readout.textContent = `${Math.round(settings[setting] * 100)}%`
+  if (readout !== null) readout.textContent = (SETTING_READOUT[setting] ?? String)(settings[setting])
 }
 app.addEventListener('input', event => {
   const input = event.target
@@ -2196,12 +2270,17 @@ window.addEventListener('message', event => {
   if (data.type === 'synapse:current-session') {
     const previousId = state.currentSession?.id
     state.currentSession = data.session ?? null
+    const moved = previousId !== state.currentSession?.id
     const thread = currentHostThread()
     if (thread !== undefined) {
       state.activeId = thread.id
       if (state.workspace !== null) revealConversationThread(conversationCards(canvasThreads()), thread.id)
     }
-    if (previousId !== state.currentSession?.id && canReplaceView()) render()
+    if (!moved) return
+    // A session in the OPEN workspace is just the highlight moving; one that is
+    // not may live in another directory, and then the map goes there too.
+    if (thread !== undefined) { if (canReplaceView()) render(); return }
+    void followHostSession().catch(setError)
     return
   }
   if (data.type === 'synapse:live-reply' && typeof data.sessionId === 'string') {

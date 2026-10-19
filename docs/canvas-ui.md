@@ -12,11 +12,13 @@
 - **本仓库的代码不写行尾分号，所以任何一行都不能以 `(` 或 `[` 开头。** `history.scrollRestoration = 'manual'` 后面接一行 `(window).__synapse = …` 会被解析成 `'manual'(window)` → 抛 `"manual" is not a function`，画布整页空白且**外层页面无任何报错**（只有 iframe 的 pageerror 有），排查成本极高。要么写成 `const x = …` 再赋值，要么前面补分号。
 - **地图只画「该显示的」会话。** `threadVisibility(thread)` 返回 `'shown' | 'hidden' | 'stale'`：`thread.hidden === true/false` （写进画布数据文件，由侧栏眼睛按钮 PATCH `/synapse/api/threads/:id` 设置）是用户的显式选择，优先；否则看**最近 7 天**（`RECENT_WINDOW_DAYS`）。**活跃时间从 `thread.messages` 里的 `at` 算，不用 `thread.updatedAt`** —— 拖动卡片/改名都会把 `updatedAt` 刷成 now，那样一张被拖过的老卡片会自己回到画布上。卡片集必须总是走 `canvasThreads()`（地图、reveal/pan 目标、折叠遍历共用），否则被收起的 thread 仍会占车道/镜头目标/折叠根。
 - **地图没有卡片时（`clearCanvasCards()`）必须把 `state.canvasCards` / `canvasGraph` / `mountedCardIds` 一并清空**：这几个值在渲染之外也被读（折叠、连接线缓存、reveal），留着上一份非空集合会让刚被收起的卡片看起来还在。空状态与「全部在 7 天之外」是两种文案。
-- **默认打开的工作区是 `updatedAt` 最新的那个**，不是 `summaries[0]`（后者按创建顺序，往往就是卡片最少的老工作区）。
+- **默认打开的工作区：宿主当前会话所在的那个**，没会话时才是 `updatedAt` 最新的那个（后者按创建顺序的反面 —— 不是 `summaries[0]`，那个往往就是卡片最少的老工作区）。「宿主的会话」在画布看来是一个**变了才认**的信号：宿主换会话 → 跟着换工作区（跨目录）；用户自己在侧栏选的工作区，在宿主没换会话时不许被拽回去。要回答「这条会话属于哪个工作区」看摘要里的 `sessionIds`，不要比路径（`B:/x` 与 `B:\\x` 会不等）。验证 `scripts/verify-follow.mjs`（pi-web）与 `scripts/verify-dsh.mjs` 最后那段（DSH 不重新加载就跟着走）。
 - **侧栏一行的结构是 `.tree-item` 包着两个按钮**：`.tree-row[data-thread]`（`data-action="select-thread"`，验证脚本点它选会话）与 `[data-action="toggle-visibility"][data-thread]`（眼睛）。按钮不能嵌套（HTML 会默默丢掉内层），所以包装层必须有。验证脚本：`scripts/verify-visibility.mjs`。
 - 类名与 `data-*` 是验证脚本的选元素契约，**改样式可以，改名字要同步改 `scripts/verify-*.mjs`**。
 - **侧问草稿卡的工具 chips（`.draft-tool-chips` / `.draft-tool-chip`，`data-action="toggle-draft-tool"` + `data-tool`）是宿主词表的展示，不是画布自带的清单。** 名字全部来自 `/synapse/api/status`（`pinnableTools` 当选项、`defaultBtwTools` 当初始选中），画布只负责「选中的填紫底、未选的空底」与一个可滚动的行（`max-height` 卡住，否则 25 个工具会把草稿卡拉成一堵墙）。别把 pi 的 `read/grep/find/ls` 写回画布：那是 pi-web 的预设，DSH 的工具名完全不同。
-- **卡片尺寸与字体是设置，不是常量。** 宽度/高度由 `state.settings.cardScale` 乘出来，同时发给两边：JS 用 `cardWidth()`/`cardHeight()` 算位置、连线锚点、虚拟化包围盒，CSS 用 `--card-w` / `--card-h` 画盒子 —— 两边的数字必须来自同一个地方，否则连线锚点会错位（曾经的窄屏媒体查询就是一个反例，已删）。字体是 `--card-font-scale`，只乘卡片自己的那几号字。设置面板（右下角齿轮）里拖滑块时走 `input` 事件即时预览、`change` 时整体重绘：每次 `input` 都 `render()` 会把面板从手指底下重建、拖拽断掉。
+- **卡片尺寸、字体与间距都是设置，不是常量。** 宽度/高度由 `state.settings.cardScale` 乘出来，同时发给两边：JS 用 `cardWidth()`/`cardHeight()` 算位置、连线锚点、虚拟化包围盒，CSS 用 `--card-w` / `--card-h` 画盒子 —— 两边的数字必须来自同一个地方，否则连线锚点会错位（曾经的窄屏媒体查询就是一个反例，已删）。字体是 `--card-font-scale`，只乘卡片自己的那几号字。
+- **间距是独立设置（`cardGap`），不跟卡片大小缩放。** 同一泳道的两张卡水平相距 `cardWidth() + cardGap()`，纵向同理；这里曾经硬编码 `365` 与 `CARD_GAP_Y = 42`，于是卡片一放大（434px 宽）横向步长 365 就变成了**重叠** —— 用户看到的「改完卡片大小间距也跟着变」就是这个。
+- **设置面板（右下角齿轮）里拖滑块时走 `input` 事件即时预览、`change` 时整体重绘**：每次 `input` 都 `render()` 会把面板从手指底下重建、拖拽断掉。改尺寸/间距不自动重排（面板里写明「叠在一起就点整理」）：已拖过的卡是用户的布置，不能因为拖了个滑块就被推走。
 - 颜色只承载语义（失败/侧问/工具数/上下文压力），新增颜色先问「它代表什么」。
 - 字体是本地随包的（`src/canvas/fonts/*.woff2`，只做拉丁子集，中文走系统字）。新增字体资源必须走 `createAssetHandler` 的 `binary` 分支，按 utf8 读会破坏 woff2。
 - 行与行之间靠 1px `#eaeaea` 发丝线分层，不用阴影堆叠。

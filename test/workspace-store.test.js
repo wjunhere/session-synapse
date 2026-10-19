@@ -74,6 +74,24 @@ test('repeated projection does not duplicate cards', async () => {
   })
 })
 
+test('the workspace list says which sessions live in each workspace', async () => {
+  // The canvas uses this to follow the host's current session across directories
+  // without loading every workspace: one session, one workspace, one lookup.
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    const project = (id, cwd) => store.projectSession({
+      id, cwd, filePath: `${cwd}/${id}.jsonl`, parentSessionFile: null, title: null, inheritedEntryCount: 0,
+      entries: [{ id: 'e1', order: 0, kind: 'user', text: 'q', at: '2026-01-01T00:00:01.000Z' }],
+    })
+    await project('sess-a', '/tmp/a')
+    await project('sess-b', '/tmp/b')
+    await project('sess-a2', '/tmp/a')
+    const byCwd = new Map((await store.list()).map(workspace => [workspace.cwd, [...workspace.sessionIds].sort()]))
+    assert.deepEqual(byCwd.get('/tmp/a'), ['sess-a', 'sess-a2'])
+    assert.deepEqual(byCwd.get('/tmp/b'), ['sess-b'])
+  })
+})
+
 test('a fork links to its parent through parentSessionFile', async () => {
   await withStore(async dataFile => {
     const store = new WorkspaceStore(dataFile)

@@ -360,10 +360,15 @@ loader.load({
         }
         return null
       }
+      // The canvas iframe loads AFTER the plugin applies, so the first post (and
+      // any later one) can land in a document that has no listener yet — hence
+      // `force` on the canvas's own `map-ready`, which is the one moment we know
+      // it is listening. Without it the canvas never learns the host's current
+      // session on a first load: the guard below suppresses every repeat.
       let lastSessionId = null
-      function postCurrent() {
+      function postCurrent(force = false) {
         const id = currentSessionId()
-        if (id === lastSessionId) return
+        if (id === lastSessionId && !force) return
         lastSessionId = id
         send('synapse:current-session', { session: id === null ? null : { id } })
         // …and the map's visibility becomes the host's business: an overlay the
@@ -492,7 +497,7 @@ loader.load({
         if (data === null || typeof data !== 'object' || data.source !== CHILD_SOURCE) return
         if (data.type === 'synapse:map-ready') {
           postTheme()
-          postCurrent()
+          postCurrent(true)
           // The canvas brings no chrome of its own: this host already shows its
           // own sidebar and header (see `synapse:chrome` in app.js).
           send('synapse:chrome', { embedded: true })

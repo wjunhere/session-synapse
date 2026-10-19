@@ -104,9 +104,17 @@ export function persistBranchAnchors(entries) { writeJson(BRANCH_ANCHORS_KEY, [.
  */
 export const CARD_SCALE_RANGE = /** @type {[number, number]} */ ([0.8, 1.4])
 export const CARD_FONT_SCALE_RANGE = /** @type {[number, number]} */ ([0.9, 1.3])
+/**
+ * World-space distance between two cards, in pixels.
+ *
+ * A setting rather than a constant, and deliberately NOT scaled with the card:
+ * a bigger card needs the same breathing room, not proportionally more, and the
+ * gap is what the user actually aims at when they say the map is too tight.
+ */
+export const CARD_GAP_RANGE = /** @type {[number, number]} */ ([8, 120])
 /** Days of activity a card needs to stay on the canvas; `0` means no window. */
 export const RECENT_DAYS_CHOICES = [1, 3, 7, 14, 30, 0]
-export const DEFAULT_SETTINGS = { cardScale: 1, cardFontScale: 1, recentDays: 7 }
+export const DEFAULT_SETTINGS = { cardScale: 1, cardFontScale: 1, cardGap: 42, recentDays: 7 }
 
 /** One number inside its range, or the default when it is not a number at all. */
 function clamp(value, [min, max], fallback) {
@@ -125,6 +133,7 @@ export function normalizeSettings(value) {
   return {
     cardScale: clamp(raw.cardScale, CARD_SCALE_RANGE, DEFAULT_SETTINGS.cardScale),
     cardFontScale: clamp(raw.cardFontScale, CARD_FONT_SCALE_RANGE, DEFAULT_SETTINGS.cardFontScale),
+    cardGap: Math.round(clamp(raw.cardGap, CARD_GAP_RANGE, DEFAULT_SETTINGS.cardGap)),
     recentDays: RECENT_DAYS_CHOICES.includes(raw.recentDays) ? raw.recentDays : DEFAULT_SETTINGS.recentDays,
   }
 }

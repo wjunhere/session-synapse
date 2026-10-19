@@ -26,13 +26,13 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 136 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 34 + 画布设置 5 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
-npm run verify                            # 全套回归：起服务 → 23 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
-npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），43 项
+npm test                                  # 137 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
+npm run verify                            # 全套回归：起服务 → 24 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
+npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），44 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 ```
 
-**两个回归入口是分开的**，因为世界不同：`npm run verify` 的 23 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
+**两个回归入口是分开的**，因为世界不同：`npm run verify` 的 24 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
 
 单独跑某个套件（脚本统一读 `BASE`，默认 `http://127.0.0.1:30143`）：
 
@@ -54,6 +54,7 @@ node scripts/verify-card-drag.mjs         # 卡片抓手：按下也居中、拖
 node scripts/verify-navigation.mjs        # 点卡片进详情（不跳 pi-web）+ 无锚点落在最新消息
 node scripts/verify-session-removal.mjs   # 会话删除后的对账（A 段可独立跑；B 段需服务 + PROBE_CWD）
 node scripts/verify-visibility.mjs        # 地图显示规则：7 天默认 + 侧栏眼睛按钮（需服务 + PROBE_CWD）
+node scripts/verify-follow.mjs            # 画布跟着宿主的会话换工作区（需服务 + PROBE_CWD）
 node scripts/verify-image-paste.mjs       # 卡片内粘贴图片（需传 PROBE_CWD）
 node scripts/verify-streaming.mjs         # 流式「边写边显」（需传 PROBE_CWD）
 node scripts/verify-send.mjs              # 画布内发消息（需传 PROBE_CWD）
@@ -76,7 +77,7 @@ node scripts/verify-clean-probes.mjs      # clean-probes 自己：不许碰活�
 ## 28. 一条命令跑全套回归（M4-3，2026-10-14）
 
 `npm run verify` = `scripts/verify-all.mjs`：按前置条件检查上游 pi-web → 用**隔离的临时数据文件**与一次性
-`PROBE_CWD` 起 `bin/synapse.js start` → 顺序跑 19 个套件（每个都带 `BASE`/`PROBE_CWD`/`CHROME_PATH`）→
+`PROBE_CWD` 起 `bin/synapse.js start` → 顺序跑 24 个套件（每个都带 `BASE`/`PROBE_CWD`/`CHROME_PATH`）→
 停服务 → `clean-probes.mjs --data <临时文件>` → 打一张表。每个套件的完整输出写到 `<run>/logs/`，**成功才删
 run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户自己启的比明确报错更糟），也不碰用户真实的
 `workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。仓库已建：`wjunhere/session-synapse`
@@ -93,6 +94,14 @@ run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户�
    `scan()` 判定无变化 → **那次追加永远不会被投影**。实测现象：卡片一直卡在「正在回复」（最终 assistant
    条目从未到位）、3 轮探测只挂 2 张卡。修法：`known`（只归 watcher）与 `headers`（只归 listSessions）分开
    （见 AGENTS.md 坑 41）。
+3. **探针留下的第二个工作区会拖垮后面的套件（新套件 `verify-follow` 踩到）。** 它必须在两个目录各造一条
+   会话，于是数据文件里多了一个比共享探测目录更新的工作区。后面的 `verify-image-paste` / `-btw` /
+   `-branch` / `-streaming-card` 用 `opts.find(o => o.includes(probeTitle))` 按**标题子串**选工作区
+   （`probeTitle` 是 `cwd`），而新工作区叫 `cwd-b` 也包含 `cwd` 且排在最前 → 它们选到了一个已经被删掉的
+   目录（`400 Directory does not exist`、卡片一张都没有）。两个修法一起上：新套件结束时把那个工作区的
+   线程删掉（`DELETE /synapse/api/threads/:id`，store 会把空掉的投影工作区一并移除，并记住这条会话
+   不该再被投影），这样后续套件看到的仍是原来那个「最近活跃」的工作区；按标题子串选工作区这件事本身
+   仍然很脆，改套件时注意。
 
 ### 一个被顺便修正的测试前提
 
