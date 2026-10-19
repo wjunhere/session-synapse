@@ -130,13 +130,60 @@ async function setThreadVisibility(thread, hidden) {
   render()
 }
 
-function openBtw(parent, anchorId = undefined) {
+function openBtw(parent, anchorId = undefined, atSeq = undefined) {
   if (parent.sessionId === null) return setError('该节点没有关联的会话')
   state.activeId = parent.id
   state.quickPhraseEditorOpen = false
-  state.draft = { kind: 'btw', parentId: parent.id, anchorId, text: '', sending: false }
+  // `atSeq` is the entry the side question inherits THROUGH: a question asked
+  // about turn 3 is not helped by turn 9, and the hosts that can fork at an
+  // event (DSH) do it there. Hosts that cannot ignore it (`hostBtwSession`).
+  state.draft = {
+    kind: 'btw', parentId: parent.id, anchorId, atSeq, text: '', sending: false,
+    tools: [...state.btwDefaultTools],
+    toolOptions: [...state.btwToolOptions],
+  }
   render()
   window.setTimeout(() => htmlElement('[data-draft] textarea')?.focus(), 0)
+  void refreshBtwTools(parent.sessionId)
+}
+
+/**
+ * Chip names: what the draft may pick at all, plus anything it already has.
+ *
+ * The union is what keeps a selected tool from losing its chip when the host
+ * cannot describe this session (no live agent) or describes a shorter list
+ * than the defaults.
+ */
+function btwChipNames(options, selected) {
+  const names = [...selected]
+  for (const name of options) {
+    if (typeof name === 'string' && name !== '' && !names.includes(name)) names.push(name)
+  }
+  return names
+}
+
+/**
+ * Ask the host what tools THIS session has.
+ *
+ * The page-load answer may predate any live session, and a host may only
+ * describe the tools of a session it has composed (listing them never
+ * activates anything). So the draft asks again, naming the session it hangs
+ * under, and replaces the chips when the answer arrives — unless the draft is
+ * gone or the user has since chosen something else.
+ */
+async function refreshBtwTools(sessionId) {
+  const draft = state.draft
+  if (draft === null || draft.kind !== 'btw' || sessionId === null) return
+  const status = await api(`/synapse/api/status?session=${encodeURIComponent(sessionId)}`)
+  if (state.draft !== draft) return
+  // `pinnableTools` is the set a pin may NAME (a tool registered in the agent's
+  // own layer survives any allow list, and naming it is refused), so it wins
+  // over the visible set whenever the host reports one.
+  const options = Array.isArray(status?.pinnableTools) && status.pinnableTools.length > 0 ? status.pinnableTools
+    : Array.isArray(status?.tools) ? status.tools
+    : []
+  draft.toolOptions = btwChipNames(options, draft.tools)
+  render()
 }
 
 /**
@@ -452,8 +499,13 @@ async function submitDraft() {
  * file, but waiting for it would leave the user with no feedback.
  */
 async function submitBtwDraft(draft, parent, text, images = []) {
-  const tools = state.readOnlyTools
-  const forked = await hostBtwSession(parent.sessionId, tools)
+  // An empty loadout is not "no restriction": the harness treats it as a
+  // no-op, so the side question would keep the parent's full tool plane. It is
+  // refused here as well as on the host, because this is where the user can
+  // still do something about it.
+  const tools = draft.tools ?? state.btwDefaultTools
+  if (tools.length === 0) throw new Error('侧问至少要给一个工具（空清单等于不限制）')
+  const forked = await hostBtwSession(parent.sessionId, tools, draft.atSeq)
   const title = draftMessageText(text, images).replaceAll(/\s+/g, ' ').trim().slice(0, 42)
   const result = await api(`/synapse/api/threads/${parent.id}/link`, {
     method: 'POST',
@@ -942,7 +994,7 @@ function conversationCard(card, graph) {
   // semantic one — the same is already true of the existing 分支 button.
   const btwButton = state.capabilities.btw !== true || !(typeof card.answer?.sourceEntryId === 'string' && card.answer.sourceEntryId !== '')
     ? ''
-    : `<button class="graph-btw-button" data-action="open-btw" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceEntryId}" aria-label="开启侧问（继承上下文、只读工具）" title="侧问：继承当前上下文，只给只读工具，${state.hostLabels.btwArchiveHint}">${ICON(`<path d="${ICON_PATHS.speaker}"/><path d="${ICON_PATHS.speakerAdd}"/>`)}</button>`
+    : `<button class="graph-btw-button" data-action="open-btw" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceEntryId}" aria-label="开启侧问（继承上下文、工具可选）" title="侧问：继承当前上下文，工具在草稿卡里选（默认只读），${state.hostLabels.btwArchiveHint}">${ICON(`<path d="${ICON_PATHS.speaker}"/><path d="${ICON_PATHS.speakerAdd}"/>`)}</button>`
   // Actions the host cannot perform are omitted instead of rendered as
   // buttons that would fail on click.
   // Host-side writes (rename, pi-web's own archive) are rare and destructive,
@@ -976,6 +1028,25 @@ function conversationCard(card, graph) {
     <div class="thread-answer">${card.answer === null ? (card.error === null ? '<p class="thread-answer-empty">等待助手回复</p>' : '') : card.answer.pending && card.answer.text === '' ? '<p class="thread-answer-pending">正在回复</p>' : `${renderMarkdown(card.answer.text)}${card.answer.pending ? '<p class="thread-answer-pending">正在回复</p>' : ''}`}${card.error === null ? '' : `<p class="thread-answer-error" title="${escapeHtml(card.error.text)}">本轮失败：${escapeHtml(card.error.text)}</p>`}</div>
     <footer><button data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话" aria-label="查看完整会话">${ICON('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>')}详情</button><button data-action="open-host" data-thread="${card.hostThreadId}" data-seq="${typeof card.sourceEntryId === 'string' && card.sourceEntryId !== '' ? card.sourceEntryId : ''}" title="${state.hostLabels.openIn}" aria-label="${state.hostLabels.openIn}">${ICON(`<path d="${ICON_PATHS.external}"/><path d="M9.5 3.5h3v3M12.2 3.8 7.5 8.5"/>`)}${state.hostLabels.openInShort}</button>${hostActions}<button data-action="archive-thread" data-thread="${card.hostThreadId}" title="从画布移除（原会话保留）" aria-label="从画布归档">${ICON(`<path d="${ICON_PATHS.arch}"/><path d="M4 5 5 2.8a.7.7 0 0 1 .6-.4h4.8a.7.7 0 0 1 .6.4L12 5M6 9.5h4"/>`)}归档</button></footer>
   </article>`
+}
+
+/**
+ * The tool chips of a /btw draft.
+ *
+ * Multi-select, and the loadout is the user's call: "read-only" is a pi-web
+ * preset, not a host-neutral idea, and the two hosts do not even name the same
+ * tools. The names come from the host (`defaultBtwTools` starts the selection,
+ * `pinnableTools` is what it may be given), so nothing here assumes a
+ * vocabulary.
+ */
+function draftToolChips(draft) {
+  const disabled = draft.sending ? 'disabled' : ''
+  const names = btwChipNames(draft.toolOptions ?? [], draft.tools)
+  const chips = names.map(name => {
+    const on = draft.tools.includes(name)
+    return `<button class="draft-tool-chip${on ? ' is-on' : ''}" type="button" data-action="toggle-draft-tool" data-tool="${escapeHtml(name)}" aria-pressed="${on}" title="${on ? `不再给侧问 ${escapeHtml(name)} 工具` : `给侧问 ${escapeHtml(name)} 工具`}" ${disabled}>${escapeHtml(name)}</button>`
+  }).join('')
+  return `<div class="draft-tool-chips" role="group" aria-label="这个侧问可用的工具"><span class="draft-tool-chips-label">工具</span>${chips}</div>`
 }
 
 function draftActions(draft) {
@@ -1126,7 +1197,7 @@ function btwWidget(thread, parentCard, index) {
       <span class="btw-widget-turns">${turns === 0 ? '待提问' : `${turns} 问`}</span>
       ${usage === null ? '' : `<span class="btw-widget-usage">${Math.round(usage.percent)}%</span>`}
     </button>
-    ${state.capabilities.archiveSession === true ? `<button class="btw-widget-remove" data-action="archive-thread" data-thread="${escapeHtml(thread.id)}" title="从画布移除这个侧问（${state.hostLabels.name} 归档视图仍可查看）" aria-label="移除侧问">${closeIcon()}</button>` : ''}
+    ${state.capabilities.archiveSession === true ? `<button class="btw-widget-remove" data-action="archive-thread" data-thread="${escapeHtml(thread.id)}" title="从画布移除这个侧问（${state.hostLabels.archiveHint}）" aria-label="移除侧问">${closeIcon()}</button>` : ''}
   </article>`
 }
 
@@ -1176,10 +1247,14 @@ function draftCard(cards) {
   const continuing = draft.kind === 'continue'
   const isBtw = draft.kind === 'btw'
   const heading = isBtw ? '新的侧问 /btw' : continuing ? '新的追问' : '新的分支'
-  const placeholder = isBtw ? '输入侧问（继承当前上下文，只读工具，自动归档）' : continuing ? '输入追问（可直接粘贴图片）' : '输入这个分支的新问题（可直接粘贴图片）'
+  // The /btw placeholder promises nothing about archiving: whether the child
+  // gets hidden from the host's own session list is the host's business
+  // (pi-web archives it, DSH must not), and the button's own tooltip carries
+  // that host's wording (`hostLabels.btwArchiveHint`).
+  const placeholder = isBtw ? '输入侧问（继承当前上下文，工具自选）' : continuing ? '输入追问（可直接粘贴图片）' : '输入这个分支的新问题（可直接粘贴图片）'
   return `<article class="thread-card draft-card${isBtw ? ' draft-btw-card' : ''}" data-card-id="draft" style="left:${placement.position.x}px;top:${placement.position.y}px;--thread-color:${isBtw ? 'var(--violet)' : 'var(--ink)'}">
     <div class="thread-card-head"><span class="topic-dot"></span><strong>${heading}</strong></div>
-    <form class="draft-branch-form" data-draft>${draftQuickPhrases(draft)}<textarea maxlength="4000" placeholder="${placeholder}" ${draft.sending ? 'disabled' : ''}>${escapeHtml(draft.text)}</textarea>${draftAttachments(draft)}${draftActions(draft)}</form>
+    <form class="draft-branch-form" data-draft>${draftQuickPhrases(draft)}<textarea maxlength="4000" placeholder="${placeholder}" ${draft.sending ? 'disabled' : ''}>${escapeHtml(draft.text)}</textarea>${isBtw ? draftToolChips(draft) : ''}${draftAttachments(draft)}${draftActions(draft)}</form>
   </article>`
 }
 
@@ -1371,7 +1446,7 @@ function renderThread() {
   // A btw thread reports what it may do: the tool set pi-web pinned on it,
   // which is what makes a side question materially different from a plain fork.
   const tools = isBtw && Array.isArray(thread.tools)
-    ? `<span class="detail-tools" title="${state.hostLabels.toolsPinnedBy}">只读工具 ${thread.tools.length} 个</span>`
+    ? `<span class="detail-tools" title="${state.hostLabels.toolsPinnedBy}">工具 ${thread.tools.length} 个</span>`
     : ''
   const usage = contextUsageFor(thread.id)
   const usageLabel = usage === null ? '' : `<span class="detail-usage" title="上下文占用">${usage.percent.toFixed(1)}% · ${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}</span>`
@@ -1917,7 +1992,14 @@ app.addEventListener('click', async event => {
       window.setTimeout(() => htmlElement(`[data-action="toggle-card-children"][data-card="${selectorValue(cardId)}"]`)?.focus(), 0)
     }
     if (button.dataset.action === 'open-continue' && thread !== undefined) openContinue(thread, button.dataset.card)
-    if (button.dataset.action === 'open-btw' && thread !== undefined) openBtw(thread, button.dataset.card)
+    if (button.dataset.action === 'open-btw' && thread !== undefined) openBtw(thread, button.dataset.card, button.dataset.seq)
+    if (button.dataset.action === 'toggle-draft-tool' && button.dataset.tool !== undefined) {
+      const draft = state.draft
+      if (draft !== null && draft.kind === 'btw') {
+        draft.tools = draft.tools.includes(button.dataset.tool) ? draft.tools.filter(name => name !== button.dataset.tool) : [...draft.tools, button.dataset.tool]
+        render()
+      }
+    }
     if (button.dataset.action === 'open-branch' && thread !== undefined) {
       // pi entry ids are 8-hex-digit strings (`927f88e9`), never numbers: a
       // `Number.isInteger()` gate rejected every one of them and answered with
@@ -2099,7 +2181,13 @@ api('/synapse/api/status').then(status => {
     if (status?.capabilities !== undefined) state.capabilities = { ...state.capabilities, ...status.capabilities }
     if (typeof status?.adapter === 'string') state.hostLabels = hostLabels(status.adapter)
     useWriteTransport(status?.writeTransport)
-    if (Array.isArray(status?.readOnlyTools) && status.readOnlyTools.length > 0) state.readOnlyTools = status.readOnlyTools.filter(name => typeof name === 'string')
+    // The tool vocabulary a /btw is expressed in belongs to the host: names it
+    // may be given, and the set a new one starts from.
+    if (Array.isArray(status?.defaultBtwTools) && status.defaultBtwTools.length > 0) state.btwDefaultTools = status.defaultBtwTools.filter(name => typeof name === 'string' && name !== '')
+    const options = Array.isArray(status?.pinnableTools) && status.pinnableTools.length > 0 ? status.pinnableTools
+      : Array.isArray(status?.tools) ? status.tools
+      : []
+    state.btwToolOptions = btwChipNames(options.filter(name => typeof name === 'string'), state.btwDefaultTools)
   } catch (error) {
     setError(error)
   }

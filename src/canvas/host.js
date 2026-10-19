@@ -194,24 +194,41 @@ export async function hostArchiveSession(sessionId, archived = true) {
 }
 
 /**
- * Create a /btw side question.
+ * Create a /btw side question: fork with inherited context, pin its tools, keep
+ * it out of the host's main session list.
  *
- * Three host calls, no Synapse-invented mechanism:
- *   1. fork        — the only way to inherit REAL history; a text-injected
- *                    context would need a model-calling runtime the canvas
- *                    does not have.
- *   2. set_tools   — pin read-only tools. pi-web persists this as a `custom`
- *                    entry inside the NEW session file, so the parent keeps
- *                    its own loadout.
- *   3. archive     — keep the main list clean. The session stays fully usable
- *                    from the archive view, so a btw question can still be
- *                    continued there later.
+ * Both hosts perform the pin themselves, through `/synapse/api/host/btw` and
+ * the `'synapse'` transport (DSH) — a tool loadout there is a scoped effect on
+ * one agent, which no page can reach. pi-web is the opposite: it persists a
+ * per-session loadout as a `custom` entry in the NEW session file, and its
+ * command channel only exists on its own origin, so the browser does it in
+ * three calls here:
  *
- * pi-web only: it is the only host here with a per-session tool loadout, and
- * the canvas hides the button elsewhere (`capabilities.btw`).
+ *   1. fork      — the only way to inherit REAL history; a text-injected
+ *                  context would need a model-calling runtime the canvas does
+ *                  not have.
+ *   2. set_tools — pin the loadout on the child. The parent is untouched.
+ *   3. archive   — keep the main list clean. The session stays fully usable
+ *                  from the archive view, so a btw question can still be
+ *                  continued there later.
+ *
+ * pi-web keeps forking at the leaf, as it always has (`entryId` is only
+ * expressible on the hosts that take it, and changing pi-web's fork point is
+ * not this function's business).
+ *
+ * @param {string} sessionId
+ * @param {string[]} tools  the loadout to pin; must name at least one tool
+ * @param {string} [entryId]  fork at this entry instead of at the leaf
  */
-export async function hostBtwSession(sessionId, tools) {
-  if (writeTransport !== 'host') throw new Error('当前宿主不支持 btw（没有按会话固定工具清单的能力）')
+export async function hostBtwSession(sessionId, tools, entryId = undefined) {
+  requireSession(sessionId)
+  if (!Array.isArray(tools) || tools.length === 0) throw new Error('侧问至少要给一个工具')
+  const at = typeof entryId === 'string' && entryId !== '' ? entryId : undefined
+  if (writeTransport === 'synapse') {
+    const body = await api('/synapse/api/host/btw', { method: 'POST', body: JSON.stringify({ sessionId, entryId: at, tools }) })
+    if (typeof body.sessionId !== 'string' || body.sessionId === '') throw new Error('宿主无法创建侧问')
+    return { id: body.sessionId, title: null }
+  }
   const forked = await hostForkSession(sessionId)
   await hostCommand('set_tools', { sessionId: forked.id, toolNames: tools })
   try {

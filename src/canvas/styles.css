@@ -910,6 +910,27 @@ html[data-embedded] {
 .draft-quick-editor-close { justify-self: end; min-height: 24px; border: 0; background: transparent; padding: 0 6px; color: var(--ink-3); font-size: 11px; }
 .draft-quick-editor-close:hover { border: 0; background: var(--surface-fill); color: var(--ink); }
 
+/* Tool chips of a /btw draft: what the side question may use. Same chip shape
+   as the quick phrases, but a selected one is filled and tinted, because "in
+   the loadout" is a state rather than a shortcut. The row scrolls instead of
+   growing: a host can name twenty-odd tools, and the draft card must not become
+   a wall of chips. */
+.draft-tool-chips { display: flex; width: 100%; max-height: 74px; flex-wrap: wrap; align-content: flex-start; gap: 5px; overflow-y: auto; }
+.draft-tool-chips-label { display: flex; min-height: 22px; align-items: center; color: var(--ink-3); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.draft-tool-chip {
+  min-height: 22px;
+  border-color: var(--line);
+  border-radius: 11px;
+  background: var(--surface-sunken);
+  padding: 0 9px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.draft-tool-chip:hover { border-color: var(--ink-3); background: var(--surface-fill); color: var(--ink-2); }
+.draft-tool-chip.is-on { border-color: var(--violet-line); background: var(--violet-bg); color: var(--violet); }
+.draft-tool-chip.is-on:hover { border-color: var(--violet); background: var(--violet-bg); color: var(--violet); }
+
 /* Attachments: a strip of thumbnails, then the attach button. The strip is
    capped in height so a pile of screenshots cannot push the send buttons out of
    a fixed-height draft card. */

@@ -20,6 +20,12 @@
  *   - **The writes are service calls, not HTTP.** This process IS the harness,
  *     so `sessionController.create/rename/fork/prompt` and the workspace
  *     controller's archive are reachable directly — see `writeTransport()`.
+ *   - **A tool loadout is a scoped effect, not session state.** The harness has
+ *     no per-session tool list to set: `tools.restrict()` masks what one
+ *     agent scope inherits, and the mask dies with the agent. A /btw side
+ *     question therefore pins twice — the restriction while the process lives,
+ *     and a read-only permission preset in its own log for everything after a
+ *     restart (`pinBtw`).
  */
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
@@ -45,6 +51,28 @@ const DEFAULT_DEBOUNCE_MS = 200
  * projection-cache rows, never a per-session stat or a cold body read).
  */
 const DEFAULT_SCAN_INTERVAL_MS = 5_000
+
+/**
+ * What a /btw side question may do unless the user says otherwise.
+ *
+ * These are HARNESS tool names, not pi's: pi's read-only preset
+ * (`READ_ONLY_TOOLS`: read/grep/find/ls) names two tools DSH does not have and
+ * misses the two that do the browsing, so the two vocabularies are kept apart
+ * rather than shared.
+ */
+export const BTW_DEFAULT_TOOLS = ['read', 'grep', 'glob', 'web_fetch', 'web_search']
+
+/**
+ * The permission preset a /btw side question is put in.
+ *
+ * It is one of the profile's own presets (`sandbox: read-only`, `approval: ask`
+ * in `~/.dsh/profiles/<name>/cordis.patch.yml`), not something this adapter
+ * invents: `permissionPresets.set()` refuses a name the deployment does not
+ * configure, and the refusal is loud (fail-fast) rather than a silent debase.
+ * Unlike the tool restriction this is DURABLE — it appends `permission/preset`,
+ * `sandbox/mode` and `approval/policy` to the child's own log.
+ */
+const READ_ONLY_PRESET = 'read-only'
 
 /**
  * The image media types the harness's attachment store admits.
@@ -93,6 +121,27 @@ export function forkBoundary(entryId) {
 }
 
 /**
+ * The tool loadout a /btw pin will apply.
+ *
+ * An empty list is refused HERE because the harness accepts it: measured,
+ * `tools.restrict({ allow: [] })` returns a disposer and changes nothing, so a
+ * side question that asked for no tools would silently keep all of them — the
+ * exact opposite of what "pin this session to these tools" means.
+ *
+ * @param {unknown} tools
+ * @returns {string[]} the names, deduplicated, in the caller's order
+ */
+export function btwToolPin(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) throw new Error('侧问至少要给一个工具（空清单等于不限制）')
+  const names = []
+  for (const tool of tools) {
+    if (typeof tool !== 'string' || tool.trim() === '') throw new Error(`工具名必须是字符串：${JSON.stringify(tool)}`)
+    if (!names.includes(tool)) names.push(tool)
+  }
+  return names
+}
+
+/**
  * Run one host call, turning a host REFUSAL into a caller-facing error.
  *
  * DSH's Remote failures are discriminated by `code`, never by `instanceof` (the
@@ -127,6 +176,14 @@ const WRITE_TRANSPORT = () => 'synapse'
  * @param {any} options.sessionController  `ctx.sessionController` (list/inspect/create/rename/fork/prompt)
  * @param {any} options.sessionQuery       `ctx.sessionQuery` (observeSession)
  * @param {any} [options.workspaceController] `ctx.workspaceController` (archive/unarchive)
+ * @param {any} [options.tools]            `ctx.tools` (schemas/view/restrict)
+ * @param {any} [options.agents]           `ctx.agents` (live agent registry)
+ * @param {any} [options.sessions]         `ctx.sessions` (live sessions)
+ * @param {any} [options.permissionPresets] `ctx.permissionPresets` (the durable half of a /btw pin)
+ * @param {() => {sessionId: string, tools: string[]}[]} [options.btwPins]
+ *   The canvas's record of which forked sessions are /btw side questions and
+ *   what each was pinned to. Read when an agent appears, to re-apply the pin
+ *   the process lost (see `pinBtw`).
  * @param {(event: string, listener: (...args: any[]) => void) => () => void} options.on
  *   cordis's `ctx.on`, bound. Passed in rather than reaching for a context so the
  *   adapter stays a plain object with the same shape as the pi one.
@@ -139,8 +196,20 @@ const WRITE_TRANSPORT = () => 'synapse'
  *   cwd, so showing them would fill the map with internal chatter.
  * @param {object} [options.capabilities]     canvas-side capability overrides
  */
-export function createDshAdapter({ sessionController, sessionQuery, workspaceController = undefined, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
+export function createDshAdapter({ sessionController, sessionQuery, workspaceController = undefined, tools = undefined, agents = undefined, sessions = undefined, permissionPresets = undefined, btwPins = undefined, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
   if (typeof on !== 'function') throw new Error('createDshAdapter: on 必须是 cordis 的 ctx.on')
+
+  /**
+   * One injected service, or a clear complaint naming what is missing.
+   *
+   * They are read at the use site rather than checked up front because the
+   * adapter is also constructed by unit tests that only exercise the pure
+   * helpers; a /btw is the one path that cannot work without them.
+   */
+  function service(name, value) {
+    if (value === undefined || value === null) throw new Error(`dsh adapter 缺少 ${name} 服务（host/dsh 的 inject 应当提供）`)
+    return value
+  }
 
   async function listSessions() {
     // `list()` is cold-safe: it never activates an agent, and it carries the
@@ -190,6 +259,42 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     /** Last activity timestamp seen per session, for the out-of-process scan. */
     const seen = new Map()
     let seeded = false
+
+    /**
+     * One agent already pinned in this process.
+     *
+     * Keyed by the agent OBJECT: the restriction is an effect on the agent's
+     * scope, so a disposed-and-resumed session gets a NEW agent that must be
+     * pinned again, while the same agent must not be pinned on every event
+     * (each call appends another restriction layer).
+     */
+    const pinnedAgents = new WeakSet()
+
+    /**
+     * Re-apply the /btw tool pin of one freshly created agent.
+     *
+     * `tools.restrict()` is the half of the /btw contract that does NOT
+     * survive a restart — it is a scoped effect, not an event in the session
+     * log — so the canvas's own record of side questions is replayed here. The
+     * agent is announced during its own resume, before any turn can run, which
+     * is what makes this the place to do it.
+     */
+    function pinBtw(agent) {
+      if (typeof agent?.id !== 'string' || pinnedAgents.has(agent)) return
+      const pin = pins().find(item => item.sessionId === agent.id)
+      if (pin === undefined) return
+      pinnedAgents.add(agent)
+      try {
+        agent.ctx.tools.restrict({ allow: pin.tools })
+      } catch (error) {
+        // This listener runs INSIDE `agent/created`, so throwing would fail the
+        // resume it rode in on and lock the user out of that session. A pin
+        // naming a tool this harness no longer knows is stale data, not a bug
+        // in the resume: report it and let the durable half (the read-only
+        // permission preset in the session's own log) stand.
+        process.stderr.write(`synapse: 重新钉住 ${agent.id} 的工具失败（${pin.tools.join(', ')}）：${error?.message ?? error}\n`)
+      }
+    }
 
     const schedule = session => {
       if (session === null || typeof session?.id !== 'string') return
@@ -248,7 +353,12 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     const disposers = [
       on('session/created', session => { schedule(session) }),
       on('session/event', session => { schedule(session) }),
+      on('agent/created', payload => { pinBtw(payload?.agent) }),
     ]
+    // Agents that are ALREADY live when this subscriber attaches (a plugin
+    // reload, a harness that resumed sessions before us) never announce
+    // themselves again, so they are pinned here as well.
+    for (const agent of service('agents', agents).list()) pinBtw(agent)
     void scan()
     const timer = setInterval(() => { void scan() }, scanIntervalMs)
     return () => {
@@ -283,6 +393,117 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
       content,
       clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }, new AbortController().signal))
+  }
+
+  /** The canvas's record of /btw tool pins, or a clear complaint if unwired. */
+  function pins() {
+    if (typeof btwPins !== 'function') throw new Error('dsh adapter 缺少 btwPins（用于重启后重新钉住侧问的工具）')
+    return btwPins()
+  }
+
+  /** The live agent of one session — never activates a cold one. */
+  function liveAgentFor(sessionId) {
+    const registry = service('agents', agents)
+    if (typeof sessionId === 'string' && sessionId !== '') return registry.get(sessionId)
+    // The canvas may ask before it names a session (its status call). The tools
+    // on offer must not come from a /btw child: that plane is pinched on
+    // purpose, so it is the one agent whose tools are NOT "available here".
+    const sideQuestions = new Set(pins().map(pin => pin.sessionId))
+    return registry.list().filter(agent => !sideQuestions.has(agent.id)).at(-1)
+  }
+
+  /**
+   * The tool vocabulary a /btw side question is expressed in.
+   *
+   * `visible` is what the harness shows a model in that session.
+   * `pinnable` is the subset a pin may NAME: a restriction only masks what a
+   * scope INHERITS, so tools registered in the agent's own layer stay whatever
+   * the allow list says (measured: pinning read/grep/glob still leaves
+   * `subagent`), and naming one of those is refused by the harness. Offering
+   * them as choices would be offering a guaranteed failure.
+   *
+   * Both are empty when no agent is live — this never activates a session just
+   * to answer a question about it.
+   *
+   * @param {string} [sessionId] the session to describe; omitted = any live one
+   */
+  function btwTools(sessionId = undefined) {
+    const defaults = [...BTW_DEFAULT_TOOLS]
+    const agent = liveAgentFor(sessionId)
+    if (agent === undefined) return { defaults, visible: [], pinnable: [] }
+    const registry = service('tools', tools)
+    return {
+      defaults,
+      visible: registry.schemas(agent).map(schema => schema.name).sort(),
+      pinnable: [...registry.view(agent).restrictableNames].sort(),
+    }
+  }
+
+  /**
+   * The agent of a session, resolved through the harness's own entry point.
+   *
+   * This DOES resume a cold session (that is what `resolveAgent` is for) —
+   * which is acceptable exactly here, right after a fork we just made, and not
+   * in `btwTools()`: describing a session must never activate it.
+   *
+   * The failure is a value, not a throw: the harness answers `{ error }` for a
+   * session it cannot resolve, and that answer is the caller's problem (400),
+   * so it is turned into a `HostRequestError` here.
+   */
+  async function resolveAgentFor(sessionId) {
+    const resolved = await hostCall('解析会话', () => sessionController.resolveAgent(sessionId))
+    if (resolved?.error !== undefined) throw new HostRequestError(`解析会话失败：${resolved.error?.message ?? String(resolved.error)}`)
+    if (resolved?.agent === undefined) throw new Error(`宿主没有为会话 ${sessionId} 返回 agent`)
+    return resolved.agent
+  }
+
+  /**
+   * A /btw side question.
+   *
+   * No Synapse-invented mechanism, just the harness's own calls in the order
+   * they must happen:
+   *
+   *   1. fork — the only way to inherit REAL history (text injection would need
+   *      a model-calling runtime the canvas does not have); `entryId` forks at
+   *      that event seq when the caller names one.
+   *   2. `tools.restrict` — the side question may look but not touch. It must
+   *      land BEFORE the first prompt, and it is a live-scope effect (see
+   *      `pinBtw`).
+   *   3. `permissionPresets.set` — the durable half: read-only sandbox + ask
+   *      approval, written into the CHILD's log, so it survives a restart.
+   *
+   * There is deliberately NO archive step, unlike pi-web. Measured on dsh
+   * 0.2.1-rc.2: archiving a session attaches `ArchivedSessionGate`, which
+   * rejects every `agent/pre-step` proposed for it, so a "hidden" side question
+   * could never answer anything — the first prompt after the fork came back as
+   * `turn/end { kind: 'blocked' }`, with no model request and no error. A side
+   * question that cannot be asked is not a side question, so the tradeoff goes
+   * the other way here: the child stays in the harness's own session list, and
+   * it works. (`sessionController.prompt` does not refuse an archived session
+   * either — the turn just ends — which is exactly the silent failure this
+   * avoids.)
+   *
+   * @param {string} sessionId
+   * @param {string} [entryId]  canvas entry id (the host event seq)
+   * @param {string[]} [tools]  defaults to {@link BTW_DEFAULT_TOOLS}
+   * @returns {Promise<{sessionId: string, tools: string[]}>}
+   */
+  async function btw(sessionId, entryId = undefined, tools = undefined) {
+    if (typeof sessionId !== 'string' || sessionId === '') throw new Error('该节点没有关联的会话')
+    const pinned = btwToolPin(tools ?? BTW_DEFAULT_TOOLS)
+    const forked = await forkSession(sessionId, entryId)
+    const agent = await resolveAgentFor(forked)
+    try {
+      // Names the harness does not know are refused here, with the full list of
+      // the ones it does — a diagnostic worth showing to the user as-is.
+      agent.ctx.tools.restrict({ allow: pinned })
+    } catch (error) {
+      throw new HostRequestError(String(error?.message ?? error))
+    }
+    const session = service('sessions', sessions).get(forked)
+    if (session === undefined) throw new Error(`fork 出来的会话 ${forked} 不在活跃会话表里`)
+    service('permissionPresets', permissionPresets).set(session, READ_ONLY_PRESET)
+    return { sessionId: forked, tools: pinned }
   }
 
   /** A usable session on this cwd, created when there is none. */
@@ -336,6 +557,8 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     forkSession,
     renameSession,
     archiveSession,
+    btw,
+    btwTools,
     // The canvas cannot reach the harness's write services: they are cordis
     // services inside this process, not HTTP routes on an origin the page
     // shares. So the canvas calls `/synapse/api/host/*` and these methods run
@@ -347,12 +570,13 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     // handles `synapse:open-session` by asking the workspace UI to show that
     // session's conversation, because only the client owns the view.
     //
-    // `btw` and `setTools` stay off on purpose. A /btw side question pins the
-    // forked session to read-only tools, and DSH has no per-session tool
-    // allowlist at all (tool restriction exists only in subagent descriptors
-    // and in permission presets). Forking without pinning would be a different
-    // feature wearing the same button.
-    capabilities: () => capabilities({ openSession: true, createSession: true, sendMessage: true, forkSession: true, renameSession: true, archiveSession: true, ...overrides }),
+    // `btw` is live through the SAME channel as the other writes: it needs the
+    // harness's own `tools`/`permissionPresets` services, which no page can
+    // reach. `setTools` stays off — DSH has no per-session tool loadout to set;
+    // the restriction a /btw makes is an effect on one agent scope, not a
+    // property of the session, and pretending otherwise would be a lie in the
+    // capability table.
+    capabilities: () => capabilities({ openSession: true, createSession: true, sendMessage: true, forkSession: true, renameSession: true, archiveSession: true, btw: true, ...overrides }),
   }
 }
 

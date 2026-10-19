@@ -299,6 +299,43 @@ export class Synapse {
     return requireCapability(this.adapter, 'archiveSession')(sessionId, archived)
   }
 
+  /**
+   * A /btw side question: fork, pin the tools, put the child in the sandbox
+   * preset, archive it — performed by the host adapter, which owns those calls.
+   *
+   * The order matters and belongs to the adapter (see its own comment); the
+   * engine only knows that this is a host operation the canvas asked for.
+   *
+   * @param {string} sessionId
+   * @param {string|undefined} entryId  fork at this entry instead of at the leaf
+   * @param {string[]|undefined} toolNames  the loadout to pin; the host's default when omitted
+   */
+  async btwSession(sessionId, entryId = undefined, toolNames = undefined) {
+    return requireCapability(this.adapter, 'btw')(sessionId, entryId, toolNames)
+  }
+
+  /**
+   * The /btw tool pins the canvas recorded, for the adapter to re-apply to each
+   * agent the harness composes after a restart.
+   *
+   * @returns {{sessionId: string, tools: string[]}[]}
+   */
+  sessionBtwPins() {
+    return this.store.btwPins()
+  }
+
+  /**
+   * The tool vocabulary a /btw side question is expressed in, when the host has
+   * one: the names it may name at all and the set a new one starts from.
+   *
+   * @param {string|undefined} sessionId
+   * @returns {{defaults: string[], visible: string[], pinnable: string[]}|null}
+   */
+  btwTools(sessionId = undefined) {
+    if (typeof this.adapter.btwTools !== 'function') return null
+    return this.adapter.btwTools(sessionId)
+  }
+
   async openSession(sessionId) {
     return requireCapability(this.adapter, 'openSession')(sessionId)
   }

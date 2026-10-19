@@ -22,22 +22,32 @@ export function createApiHandler(synapse, isTrustedHost) {
   return async function handleApi(req, res) {
     try {
       if (!isTrustedHost(req.headers.host)) return sendJson(res, 403, { error: '不被信任的 Host' })
-      const path = new URL(req.url ?? '/', 'http://synapse.local').pathname
+      const url = new URL(req.url ?? '/', 'http://synapse.local')
+      const path = url.pathname
       const method = req.method ?? 'GET'
 
       if (path === '/synapse/api/reset' && method === 'POST') {
         return sendJson(res, 200, await synapse.reset([...synapse.sessions.values()]))
       }
       if (path === '/synapse/api/status' && method === 'GET') {
+        // Which live session to describe tools from, when the canvas names one.
+        // Nothing is activated to answer this (see the adapter's `btwTools`).
+        const named = url.searchParams.get('session')
+        const btwTools = synapse.btwTools(named === null || named === '' ? undefined : named)
         return sendJson(res, 200, {
           adapter: synapse.adapter.id,
           capabilities: synapse.adapter.capabilities(),
           // How the canvas reaches this host's writes: its own API from the
           // browser, or our routes (see the adapter contract).
           writeTransport: writeTransport(synapse.adapter),
-          // The canvas needs the host's read-only preset to create a /btw
-          // session; echoing it here keeps the two definitions from drifting.
-          readOnlyTools: READ_ONLY_TOOLS,
+          // A /btw is expressed in the HOST's tool vocabulary (pi's
+          // read/grep/find/ls are not DSH's read/grep/glob/...), so the host
+          // that owns one also says what a new side question starts with and
+          // which names it may be given at all. Both are empty when the host
+          // cannot name a session's tools without activating it.
+          tools: btwTools?.visible ?? [],
+          pinnableTools: btwTools?.pinnable ?? [],
+          defaultBtwTools: btwTools?.defaults ?? READ_ONLY_TOOLS,
           sessions: synapse.sessions.size,
         })
       }
@@ -62,6 +72,15 @@ export function createApiHandler(synapse, isTrustedHost) {
         const body = await readJson(req)
         const sessionId = await synapse.forkSession(String(body.sessionId ?? ''), typeof body.entryId === 'string' && body.entryId !== '' ? body.entryId : undefined)
         return sendJson(res, 201, { sessionId })
+      }
+      // A /btw side question is fork + tool pin + sandbox preset + archive,
+      // performed by the host: the tool mask is a scope effect and the sandbox
+      // preset is a service call, neither of which a page can reach.
+      if (path === '/synapse/api/host/btw' && method === 'POST') {
+        const body = await readJson(req)
+        const entryId = typeof body.entryId === 'string' && body.entryId !== '' ? body.entryId : undefined
+        const toolNames = Array.isArray(body.tools) ? body.tools : undefined
+        return sendJson(res, 201, await synapse.btwSession(String(body.sessionId ?? ''), entryId, toolNames))
       }
       if (path === '/synapse/api/host/rename' && method === 'POST') {
         const body = await readJson(req)

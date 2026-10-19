@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createDshAdapter, forkBoundary, promptContent } from '../src/adapters/dsh.js'
+import { BTW_DEFAULT_TOOLS, btwToolPin, createDshAdapter, forkBoundary, promptContent } from '../src/adapters/dsh.js'
 import { writeTransport } from '../src/adapters/contract.js'
 
 /**
@@ -55,17 +55,38 @@ test('a branch position that is not a seq is refused', () => {
   assert.throws(() => forkBoundary(42), /分支位置/)
 })
 
+test('a /btw loadout has to name at least one tool', () => {
+  // `tools.restrict({ allow: [] })` is accepted by the harness and restricts
+  // NOTHING, so an empty loadout would be the opposite of what it says. The
+  // refusal happens here rather than in the harness, which has no opinion.
+  assert.deepEqual(btwToolPin(['read', 'grep']), ['read', 'grep'])
+  // A name given twice is one tool, in the caller's order.
+  assert.deepEqual(btwToolPin(['grep', 'read', 'grep']), ['grep', 'read'])
+  assert.throws(() => btwToolPin([]), /至少要给一个工具/)
+  assert.throws(() => btwToolPin(undefined), /至少要给一个工具/)
+  assert.throws(() => btwToolPin('read'), /至少要给一个工具/)
+  assert.throws(() => btwToolPin(['read', '  ']), /工具名/)
+  assert.throws(() => btwToolPin(['read', 7]), /工具名/)
+})
+
+test('the DSH default loadout names tools the harness actually has', () => {
+  // pi's read-only preset is read/grep/find/ls; DSH has no `find` or `ls` and
+  // does have the two browsing tools, so the two vocabularies stay apart.
+  assert.deepEqual(BTW_DEFAULT_TOOLS, ['read', 'grep', 'glob', 'web_fetch', 'web_search'])
+})
+
 test('the DSH canvas writes through our routes, not the host api', () => {
   const adapter = createDshAdapter({ on: () => () => {} })
   assert.equal(writeTransport(adapter), 'synapse')
   // The write methods exist because this process CAN perform them.
-  for (const method of ['sendMessage', 'createSession', 'forkSession', 'renameSession', 'archiveSession']) {
+  for (const method of ['sendMessage', 'createSession', 'forkSession', 'renameSession', 'archiveSession', 'btw', 'btwTools']) {
     assert.equal(typeof adapter[method], 'function', `adapter 缺少 ${method}()`)
   }
-  // …but a /btw side question needs a per-session tool pin, which DSH has no
-  // equivalent of, so the capability stays off rather than degrading silently.
+  // `btw` is on: DSH can pin one agent scope and put the child in its read-only
+  // permission preset. `setTools` stays off — there is no per-session loadout
+  // to set, and the capability table must not claim otherwise.
   const caps = adapter.capabilities()
-  assert.equal(caps.btw, false)
+  assert.equal(caps.btw, true)
   assert.equal(caps.setTools, false)
   assert.equal(caps.sendMessage, true)
   assert.equal(caps.createSession, true)

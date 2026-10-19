@@ -61,7 +61,10 @@ function crc32(buffer) {
 const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
-const MODEL = { provider: 'trae', modelId: 'DeepSeek-V4-Flash' }
+// Overridable like the other probe suites: a provider that answers with an empty
+// body makes the "the reply mentions the image" check fail on the probe rather
+// than on the feature.
+const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 const PNG_BASE64 = makePng().toString('base64')
 // PROBE_CWD 必须先存在：POST /api/agent/new 对不存在的目录返回 400（不是「代理坏了」）。
 await mkdir(PROBE_CWD, { recursive: true })

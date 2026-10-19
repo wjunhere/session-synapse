@@ -27,9 +27,14 @@ export const state = {
   // Host wording (button labels, empty-state hints). Neutral until
   // /synapse/api/status names the adapter — see host-labels.js.
   hostLabels: hostLabels(undefined),
-  // The host's read-only preset, echoed back by /synapse/api/status so the two
-  // never drift; the fallback matches pi-web's own `PRESET_READ_ONLY`.
-  readOnlyTools: ['read', 'grep', 'find', 'ls'],
+  // The tool vocabulary a /btw side question is expressed in: the names a new
+  // one starts with, and the names it may be given at all. Both come from
+  // `/synapse/api/status`, because the vocabulary is the HOST's — pi-web's
+  // read/grep/find/ls are not DSH's read/grep/glob/web_fetch/… The fallback is
+  // pi-web's own read-only preset, so a draft is never tool-less while the
+  // status call is still in flight.
+  btwDefaultTools: ['read', 'grep', 'find', 'ls'],
+  btwToolOptions: ['read', 'grep', 'find', 'ls'],
   hostWorkspaces: [], selectedHostWorkspaceId: null,
   pendingReplies: new Map(), pendingRpc: new Map(), liveReplies: new Map(),
   draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(loadBranchAnchors()), cardPositions: new Map(loadCardPositions()), collapsedCardIds: new Set(loadCollapsedCards()), quickPhrases: loadQuickPhrases(), quickPhraseEditorOpen: false,

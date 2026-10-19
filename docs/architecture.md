@@ -177,7 +177,7 @@ interface SynapseAdapter {
     openSession: boolean
     renameSession: boolean
     archiveSession: boolean
-    btw: boolean          // fork + 固定只读工具 + 归档
+    btw: boolean          // fork + 限定工具 + 只读沙箱（+ 各宿主自己决定要不要归档）
     setTools: boolean
   }
 
@@ -195,6 +195,20 @@ interface SynapseAdapter {
   openSession?(sessionId: string): Promise<void>
   renameSession?(sessionId: string, name: string): Promise<void>
   archiveSession?(sessionId: string, archived: boolean): Promise<void>
+
+  /**
+   * 侧问：fork 出子会话、把它的工具限定成 toolNames、把它放进宿主的只读沙箱。
+   * 宿主自己做（画布在两边都碰不到“钉工具”这件事）；要不要把它从宿主的会话
+   * 列表里藏起来是宿主的事（pi-web 归档，DSH 不能——见 docs/dsh-desktop.md §5.3）。
+   */
+  btw?(sessionId: string, entryId?: string, toolNames?: string[]): Promise<{ sessionId: string, tools: string[] }>
+
+  /**
+   * 侧问的工具词表：defaults（新的侧问默认给什么）、visible（这个会话实际能
+   * 看见什么）、pinnable（可以写进 allow 的）。宿主没有这套词表时整个方法缺席。
+   * 拿不到活会话就给空数组——绝不为了一次 GET 去 resume 一个冷会话。
+   */
+  btwTools?(sessionId?: string): { defaults: string[], visible: string[], pinnable: string[] }
 }
 
 // 图片按画布持有的形状传（base64，无 data-URL 前缀）；

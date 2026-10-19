@@ -57,6 +57,9 @@
  * @property {boolean} renameSession
  * @property {boolean} archiveSession
  * @property {boolean} btw          fork + read-only tool pin + archive
+ *   (the host's own mechanism for the pin: pi-web persists a per-session
+ *   loadout, DSH masks one agent scope and puts the child in its read-only
+ *   permission preset)
  * @property {boolean} setTools     pin a session's tool loadout
  *
  * @typedef {object} SynapseAdapter
@@ -89,6 +92,18 @@
  * @property {((sessionId: string) => Promise<void>)} [openSession]
  * @property {((sessionId: string, name: string) => Promise<void>)} [renameSession]
  * @property {((sessionId: string, archived: boolean) => Promise<void>)} [archiveSession]
+ * @property {((sessionId: string, entryId?: string, tools?: string[]) => Promise<{sessionId: string, tools: string[]}>)} [btw]
+ *   Create a /btw side question: fork, pin the tool loadout, put the child in
+ *   the host's read-only sandbox. The HOST performs it (the canvas has no way to
+ *   pin tools on either host), which is why it is here and not in `host.js`
+ *   alone. Whether the child is also hidden from the host's own session list is
+ *   the host's business: pi-web archives it, DSH must not (its archive gate
+ *   would stop the side question from ever answering).
+ * @property {((sessionId?: string) => {defaults: string[], visible: string[], pinnable: string[]})} [btwTools]
+ *   The tool vocabulary a /btw is expressed in on this host, or absent when the
+ *   host cannot name one. `pinnable` is the subset a pin may NAME (a tool
+ *   registered in the agent's own layer survives any allow list, and naming it
+ *   is refused), `defaults` what a new side question starts with.
  *
  * @typedef {object} PromptImage
  *   One image attached to a prompt, in the shape the CANVAS holds it:
@@ -126,7 +141,10 @@ export class HostRequestError extends Error {
     archiveSession: false,
     renameSession: false,
     // A /btw side question needs a fork (for context), a tool pin, and the
-    // host's archive call (to keep the main session list clean).
+    // host's archive call (to keep the main session list clean). The pin is
+    // spelled differently on each host (`AdapterCapabilities.btw`), but both
+    // reach it through `/synapse/api/host/btw` — the host performs it, not the
+    // page.
     btw: false,
     setTools: false,
     ...overrides,
@@ -136,9 +154,12 @@ export class HostRequestError extends Error {
 /**
  * What a /btw side question runs with unless the user says otherwise.
  *
- * This is the host's own read-only preset (`lib/tool-presets.ts`), not a
- * Synapse invention: keeping the two identical means a btw card reports the
- * same loadout pi-web would show for the same session.
+ * This is pi-web's own read-only preset (`lib/tool-presets.ts`), not a Synapse
+ * invention: keeping the two identical means a btw card reports the same
+ * loadout pi-web would show for the same session. It is pi's TOOL VOCABULARY,
+ * so it is only the default for pi-web — DSH names its own set in
+ * `adapters/dsh.js` (`BTW_DEFAULT_TOOLS`) and reports it as
+ * `defaultBtwTools`.
  */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls']
 

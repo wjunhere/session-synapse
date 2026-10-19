@@ -126,6 +126,30 @@ export class WorkspaceStore {
   }
 
   /**
+   * Every /btw side question the canvas recorded, with the tool loadout it was
+   * pinned to.
+   *
+   * The HOST cannot recover this: a tool restriction is a live effect on one
+   * agent scope, not session state, so after a restart the only record of "this
+   * forked session is a read-only side question with these tools" is this file.
+   * Threads without a loadout are skipped rather than guessed at: pinning
+   * nothing would be worse than not pinning at all.
+   *
+   * @returns {{sessionId: string, tools: string[]}[]}
+   */
+  btwPins() {
+    const pins = []
+    for (const workspace of this.state.workspaces) {
+      for (const thread of workspace.threads) {
+        if (thread.kind !== 'btw' || typeof thread.sessionId !== 'string' || thread.sessionId === '') continue
+        if (!Array.isArray(thread.tools) || thread.tools.length === 0) continue
+        pins.push({ sessionId: thread.sessionId, tools: [...thread.tools] })
+      }
+    }
+    return pins
+  }
+
+  /**
    * Keep only the canvas graph in Synapse; the host remains the source of session truth.
    *
    * `removedSessionIds` are sessions the CALLER has confirmed the host no longer

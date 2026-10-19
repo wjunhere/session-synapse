@@ -6,9 +6,9 @@
 
 ```bash
 npm run check          # tsc -p jsconfig.json，基线必须是 0
-npm test               # 128 个单测
+npm test               # 131 个单测
 npm run verify         # 全套回归（需 pi-web 在 30100）：起服务 → 23 个套件 → 清理 → 汇总表
-npm run verify:dsh     # DSH 适配（需 dsh CLI + 凭据）：自己起隔离 harness，15 项
+npm run verify:dsh     # DSH 适配（需 dsh CLI + 凭据）：自己起隔离 harness，38 项
 ```
 
 改了代码先 `npm run check`；改了行为跑相关套件（清单与探测纪律见 `docs/verification.md`）。**观感类改动只能看图验，不能靠断言。**

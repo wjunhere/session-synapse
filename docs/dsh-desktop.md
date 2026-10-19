@@ -113,6 +113,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | 新建会话 | `POST /synapse/api/host/session` | `sessionController.create({ cwd })` |
 | 发消息（可带图） | `POST /synapse/api/host/prompt` | `sessionController.prompt({ requestId, sessionId, mode: 'queue', content, clientTimeZone })` |
 | 分支 | `POST /synapse/api/host/fork` | `sessionController.fork({ sessionId, atSeq })` |
+| 侧问 /btw | `POST /synapse/api/host/btw` | `fork` → `resolveAgent` → `agent.ctx.tools.restrict` → `permissionPresets.set(session, 'read-only')`（**不归档**，见 §5.3） |
 | 改名 | `POST /synapse/api/host/rename` | `sessionController.rename({ sessionId, title })` |
 | 归档 / 取消归档 | `POST /synapse/api/host/archive` | `workspaceController.archiveSession({ sessionId })` / `unarchiveSession` |
 
@@ -123,9 +124,39 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 - **`requestId` 必须自己铸。** 宿主把它记成用户消息的 `rpcId` 并据此去重，重试要用同一个身份。
 - **图片字段叫 `mediaType`（不是 pi-web 的 `mimeType`），且是闭集**（`image/png|jpeg|webp|gif`）。不在集合里的类型在这里就报出具体类型，而不是等附件准入抛一个笼统的 `session/attachment-invalid`。模型不支持图片输入时 harness 会拒（`MODEL_DOES_NOT_SUPPORT_IMAGES`），这是真实错误，不绕过。
 - **归档不传 `stopActivity`。** DSH 自己的归档命令也不传：正在跑的会话会被**拒绝**（`workspace/session-active`），而不是静默把那一轮杀掉。
-- **`btw` / `setTools` 保持 false。** DSH 根本没有「按会话固定工具清单」这回事（工具限制只存在于 subagent 描述符和权限预设里），不固定工具的 fork 是另一个功能，不该借同一个按钮露出来。
+- **`setTools` 保持 false。** DSH 根本没有「按会话固定工具清单」这回事（工具限制只存在于 subagent 描述符和权限预设里），所以不把那个按钮露出来。`btw` 是另一回事：它由宿主自己实现（§5.3），能力位是 true。
 - **归档只影响 DSH 自己的侧栏。** `sessionController.list()` 不按归档集过滤（归档集是 workspace registry 的全局状态，由客户端 UI 用来过滤列表），所以归档后画布卡片照旧在——这与 pi-web 一致（那边归档也只隐藏 pi-web 自己的列表）。
 - **harness 的拒绝会带原文。** DSH 的 Remote 失败靠 `code` 判别（不用 `instanceof`），域内 code（`session/fork-unavailable`、`workspace/session-active`…）在 adapter 里转成 `HostRequestError` → 路由回 400 + harness 原话；`gateway/internal` 是 harness 自己的故障，继续走 500。
+
+### 5.3 /btw 侧问在 DSH 上怎么落地
+
+侧问要三件事：继承真实上下文、只给一部分工具、不弄脏主列表。三件都做不到「像 pi-web 那样做」，分别如下。
+
+**继承上下文**：`sessionController.fork({ sessionId, atSeq })`，与分支同一条路。画布的侧问按钮带着所在卡片的 `data-seq`，所以 DSH 上的侧问继承的是**到那一轮为止**的上下文（pi-web 那半仍按它一直以来的做法从会话末尾分叉）。
+
+**只给一部分工具：`agent.ctx.tools.restrict({ allow })`。** 三个实测结论决定了代码形状：
+
+- **agent preset 那条路是死的。** 会话跑过一轮后 `agentPresets.select(agent, preset)` 抛 `agent-preset/locked`（「This session has already started」），fork 出来的子会话同样 locked，连换回 standard 也拒。所以「给侧问一个只读 preset」不成立。
+- **restrict 是作用域上的效应，不是会话状态。** 它挂在 `agent.ctx` 上（`agent` 来自 `sessionController.resolveAgent(sessionId)`），所以**进程一重启就没了**。重启后侧问的工具面靠画布自己重钉（下面）。
+- **它只挡「继承来的」工具。** 注册在 agent 自己那层上的工具不受 allow 影响（实测：钉 read/grep/glob 之后 `subagent` 还在），而且把这种名字写进 `allow` 会被 harness 当场拒绝（`tools.restrict() names unknown global tool …`，报文里带全部已知名字）。所以 `/synapse/api/status` 报两套：`tools`（这个会话实际能看见的）与 `pinnableTools`（可以写进 `allow` 的），画布的 chips 只用后者——否则就是摆一个必然失败的选择。
+- **空清单不是「不给工具」。** `{ allow: [] }` 实测返回一个 disposer 但什么都不挡，所以空清单在画布和 adapter 两处都被当场拒（`侧问至少要给一个工具`），而不是静默变成「全给」。
+
+**只读：`permissionPresets.set(session, 'read-only')`。** 这是**durable** 的那一半：它往子会话自己的日志里追加 `permission/preset` + `sandbox/mode` + `approval/policy`，重启后仍在。`read-only` 是 profile 里配好的 preset 名（`sandbox: read-only` / `approval: ask`），不是本插件发明的；profile 里没这个名字就当场报 `permission: unknown preset "read-only"`。
+
+⇒ 两者分工：**restrict 管「模型面前摆哪些工具」（进程内、重启丢），权限预设管「沙箱与审批」（落进日志、重启在）**。
+
+**重启后重钉。** 画布的 btw 线程本来就存了 `tools` 字段（`src/synapse.js` 的 `linkSessionThread`），adapter 在 `subscribe()` 里监听 `agent/created`：只要是画布记为 btw 的子会话，就在它被重新唤起的那一刻再 `restrict` 一次。时机是它被 `announce` 的时候——resume 事务里，任何一轮都还没开始，所以不存在「先跑一轮再钉」的窗口。
+
+- 键是 agent **对象**（`WeakSet`）：同一个 agent 只钉一次（每次调用都会叠一层 restriction），而 agent 释放后重建的新对象会被重新钉。
+- 监听器抛异常会**让那次 resume 失败**（`agent/created` 是 serial 分发），所以名字过期（harness 升过级、工具改了名）只写 stderr 并放过——durable 的沙箱那一半仍然在，总比把用户锁在自己的会话外面好。
+
+**为什么不归档（与 pi-web 分道扬镳）。** pi-web 的 btw 会归档子会话，让主列表干净。DSH 上**不能这么做**：归档会给会话挂上 `ArchivedSessionGate`，它对已归档会话提出的每一步 `agent/pre-step` 一律 reject，于是那一轮以 `turn/end { kind: 'blocked' }` 收场——没有模型请求、没有报错。实测：fork 完就归档，紧接着的第一条侧问就答不出来；而 `sessionController.prompt` 对已归档会话**也不报错**（它返回 200，只是那一轮什么都不做），所以画布会一直停在「正在回复」。
+
+⇒ 代价换了个方向：DSH 上的侧问**留在 harness 自己的会话列表里**（不清爽），但它能答、能继续问。`/synapse/api/status` 的能力位如实反映（`btw: true`、`setTools: false`），画布按钮的提示语也改成「不自动归档（DSH 的归档会拦住它发言）」，不再承诺清空列表。
+
+**工具词表是宿主的。** pi 的只读预设是 `read/grep/find/ls`，DSH 没有 `find`/`ls`、却有 `web_fetch`/`web_search`，所以默认集是 DSH 自己的五个：`read, grep, glob, web_fetch, web_search`（`src/adapters/dsh.js` 的 `BTW_DEFAULT_TOOLS`，经 `/synapse/api/status` 的 `defaultBtwTools` 报给画布）。
+
+**候选清单只在有活会话时给得出。** 工具面是逐 agent 的，所以 `btwTools()` 只查 `ctx.agents.get(id)`（活着的），**绝不为了回答一个 GET 去 resume 一个冷会话**；拿不到就报空数组，画布的 chips 就只剩默认那五个。画布因此在打开草稿卡时用当前会话再问一次 `/synapse/api/status?session=<父会话>`（那时父会话通常刚跑过、还活着），问到就长出其余可钉的名字。
 
 ## 6. 验证
 
@@ -135,7 +166,15 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 npm run verify:dsh
 ```
 
-`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 15 项（切换条/能力/宿主文案/新建+发消息/分支/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+`scripts/verify-dsh.mjs` 做的是：临时 home 建 profile → `dsh plugin add link:<repo>` → 拷一份 `.credentials.yaml`（它要真的调模型）→ `dsh rescue --no-open` → 用 playwright 把画布当插件验 38 项（切换条/能力/宿主文案/新建+发消息/追问/分支/侧问（真 fork、chips、工具面真的被砍）/改名/归档/拒绝报文/无页面错误）→ 杀进程树、删临时 home。前置：`dsh` 在 PATH 上 + 有凭据；缺一个就直接报错退出，不降级。
+
+**它验不到「重启后」**：整个套件活着的是同一个 harness，而 `/btw` 的工具钉正是重启会丢的那一半。那一段在独立探针里（它自己会重启 harness）：
+
+```bash
+node B:/vibe_program/tmp/probe-dsh-btw.mjs   # 13 项：fork/钉工具/不归档/真模型侧无 pwsh/重启后重钉/归档确实会让它变哑
+```
+
+侧问那一项用一次真模型来证「工具面被砍」：让侧问自己说它有没有 pwsh（宿主把整套工具、含 pwsh，给普通会话，所以「没有 pwsh」只可能是被钉住了）。注意工具**被拒**也会记一条 `tool/call`（`Error: unknown tool`）——判定要看结果是不是 error，不能只看有没有那次调用。
 
 手动起一个隔离实例（套件里那套步骤，拆开看）：
 
@@ -196,3 +235,5 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 58. **CSS-module 的哈希前缀会变，本地名不变。** 选宿主元素只能匹配 `*_headerCorner` 这种后半段（实测哈希是 `wSkVaW_headerCorner`）。反过来，`[class*="_header"]` 这种写宽了会命中别的东西（实测命中了正文里的 `bhn1Oq_headerActions`），拿它量头部高度会把画布起点算到 198px 而不是 40px。
 59. **两份会话列表就是同一份信息看两遍。** 画布自己的侧栏和宿主的侧栏列的是同一批会话；在 DSH 里直接不渲染它（`synapse:chrome`）。代价是画布的「会话可见性开关」（眼睛）和它的「新会话」按钮随之消失：前者目前没有替代入口（藏了一个会话只能去改 `workspaces.json`），后者宿主自己有；空工作区的地图仍有「新建会话」。
 60. **注入的 UI 与遮罩的层级要先想清楚再动手。** 地图视图下画布遮罩盖着中间列，所以在自动化里先切回「对话」再点 DSH 的输入框（否则 `locator.click` 只会等到 30s 超时）。这是验证脚本的坑，不是产品的：真实用户不会去点被遮住的东西。
+61. **归档会拦住会话发言，`prompt` 还不报错。** 归档给会话挂上 `ArchivedSessionGate`（`ctx.on('agent/pre-step')` → `{kind:'reject'}`），那一轮以 `turn/end {kind:'blocked'}` 结束：没有模型请求、没有错误、`sessionController.prompt` 照样返回 200。所以「把侧问归档掉以保持列表干净」在 DSH 上是把侧问变成哑巴（实测：fork 完就归档，紧接着第一条侧问就答不出来）。`/btw` 因此**不归档**（§5.3），代价是侧问留在 harness 自己的会话列表里；画布上「从画布移除这个侧问」那个按钮对 DSH 的提示语也跟着改成「归档后只能查看，要再发言得先取消归档」。
+62. **工具限制是 agent 作用域上的效应，不是会话状态。** `tools.restrict({allow})` 挂在 `agent.ctx` 上（不是写进会话日志），所以：① 进程重启后就没了，得在 `agent/created` 上重新钉（§5.3）；② 注册在 agent 自己那层上的工具不受它影响（实测钉 read/grep/glob 后 `subagent` 仍在），把这些名字写进 `allow` 会被当场拒绝——所以 chips 的候选只能是 `view(agent).restrictableNames`（状态接口里叫 `pinnableTools`），`schemas(agent)` 只能用来报「这个会话实际看得见什么」（`tools`）；把后者当选项清单就是把「摆一个必然失败的选择」当成功能；③ `{allow: []}` 是 no-op 而不是「全不给」，空清单必须自己拒。

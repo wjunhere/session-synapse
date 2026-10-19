@@ -25,7 +25,11 @@ import { createDshAdapter } from '../../adapters/dsh.js'
 import { acquireInstanceLock } from '../../store/instance-lock.js'
 
 export const name = 'synapse'
-export const inject = ['webServer', 'sessionController', 'sessionQuery', 'workspaceController']
+// `tools` / `agents` / `sessions` / `permissionPresets` are what a /btw side
+// question needs and what its reload story needs: the tool mask is a scoped
+// effect, so it has to be re-applied to each agent the harness composes after a
+// restart (see the adapter's `pinBtw`).
+export const inject = ['webServer', 'sessionController', 'sessionQuery', 'workspaceController', 'tools', 'agents', 'sessions', 'permissionPresets']
 
 /**
  * @param {any} ctx                the DSH plugin context (a cordis Context)
@@ -40,6 +44,11 @@ export const inject = ['webServer', 'sessionController', 'sessionQuery', 'worksp
  *   load visibly instead of leaving a half-mounted surface behind.
  */
 export async function apply(ctx, config) {
+  // The /btw tool pins live in the canvas store, which the engine owns — and
+  // the engine is built FROM this adapter, so the lookup cannot be handed over
+  // up front. It is late-bound instead: the adapter only reads it from
+  // `subscribe()`, which `engine.start()` calls after the store has loaded.
+  let engine = null
   const adapter = createDshAdapter({
     sessionController: ctx.sessionController,
     sessionQuery: ctx.sessionQuery,
@@ -47,6 +56,14 @@ export async function apply(ctx, config) {
     // archive set is registry-global and its admission gate owns what a running
     // session is allowed to do.
     workspaceController: ctx.workspaceController,
+    tools: ctx.tools,
+    agents: ctx.agents,
+    sessions: ctx.sessions,
+    permissionPresets: ctx.permissionPresets,
+    btwPins: () => {
+      if (engine === null) throw new Error('synapse: 引擎建好之前读了侧问工具记录')
+      return engine.sessionBtwPins()
+    },
     on: (event, listener) => ctx.on(event, listener),
     dshHome: typeof config?.dshHome === 'string' ? config.dshHome : undefined,
     includeSubagents: config?.includeSubagents === true,
@@ -71,6 +88,7 @@ export async function apply(ctx, config) {
     autoProjection: config?.autoProjection !== false,
     ...(typeof config?.projectionWorkspaceTitle === 'string' ? { projectionWorkspaceTitle: config.projectionWorkspaceTitle } : {}),
   })
+  engine = synapse
   // The projection is what puts cards on the canvas, and the HTTP surface only
   // serves what it produced: start it before the routes exist, so no request can
   // see a half-built store.

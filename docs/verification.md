@@ -26,9 +26,9 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 128 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 9 + 上下文 17 + 存储 33 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
+npm test                                  # 131 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 34 + 实例锁 13 + pi-web 动作 15 + 会话对账 4）
 npm run verify                            # 全套回归：起服务 → 23 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
-npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），15 项
+npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），38 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 ```
 
@@ -116,7 +116,7 @@ run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户�
 - **`PROBE_CWD` 指向的目录必须先存在**，否则 `POST /api/agent/new` 返回 400 `Directory does not exist`（不是「代理坏了」）。
 - **验证脚本里定位 btw 产物必须按 `parentId` 限定到本次的父卡片**。画布数据累积历史探测产物，`find(t => t.kind === 'btw')` 会命中上一次运行的会话，得出错误结论（同坑 19）。
 - **探测会话要 `set_thinking_level: off` 并换用会写正文的模型**。`trae/deepseek-v4.1-flash` 实测只产出 `thinking`、正文为空 → 卡片没有回答 → 依赖「有回答」的功能（分支按钮等）测不出来，会误判成功能坏了。
-- **探测模型可以用 `PROBE_PROVIDER` / `PROBE_MODEL` 换掉**（默认 `trae/DeepSeek-V4-Flash`，见 `verify-streaming-card.mjs`）。provider 会整体挂掉：所有 assistant 条目 `stopReason: 'error'` 且正文为空，表现为「没有动效类」。这不是画布的 bug —— 用 `/api/agent/new` + `prompt` 直接打也能复现（绕开画布），先换个能写正文的模型排除模型因素（实测 `cc-switch-open-code-go/deepseek-flash` 可用）。
+- **探测模型可以用 `PROBE_PROVIDER` / `PROBE_MODEL` 换掉**（默认 `trae/DeepSeek-V4-Flash`；`verify-streaming-card` / `verify-btw` / `verify-branch` / `verify-image-paste` 认这两个变量）。provider 会整体挂掉：所有 assistant 条目 `stopReason: 'error'` 且正文为空，表现为「没有动效类」/「卡片上没有分支按钮」。这不是画布的 bug —— 用 `/api/agent/new` + `prompt` 直接打也能复现（绕开画布），先换个能写正文的模型排除模型因素（实测 `cc-switch-open-code-go/deepseek-flash` 可用）。注意 `verify-btw` 里「一次性会话产出助手回复」是写死的 `true`，所以 provider 挂掉时它也会 PASS —— 真正的症状是后面「卡片上没有 btw 按钮」。
 - **跑完验证必须 `node scripts/clean-probes.mjs`（先停服务）**。探测会话是真实会话：会话目录、画布工作区、pi-web 的 `projectOrder`/孤儿归档标记都会留下，累积到 24 个 thread / 85MB 数据文件，每次保存要写 78MB。
 - **`clean-probes` 绝不能碰活实例的锁与临时文件 —— 它以前会，后果是真人丢数据。** 它曾经写死扫 `~/.pi/agent/synapse` 并见文件就删，于是 `npm run verify`（`--data <临时文件>`）把用户正在跑的那个实例的 `<data>.<pid>.tmp` 和 `<data>.instance` 一起删了：前者让那次写入的 rename 报 ENOENT（**那一笔改动静默丢失**），后者只在启动时写一次，于是那个实例**从此裸奔**（第二个实例可以同时写同一份文件，正是坑 36 的地形）。现在两条规矩：① 只碰**本次 `--data` 那份数据文件**的附属产物；② 持有者还活着就不碰（pid 从文件名或 JSON 里读，判活走 `commandLineLooksLikeOurs`，**判不出来按活着算**）。回归：`verify-clean-probes.mjs`（用 `--dry-run` 只验决策不落盘）。
 - **端口上的进程可能是父进程**：先 `netstat` 拿 PID，再 `wmic process where "ProcessId=<pid>" get CommandLine` 看它是不是在跑 `bin/synapse.js`。实测过两个实例同时在跑（一个持锁监听、一个是它的子进程），只 kill 监听的那个会留下另一个继续写文件（同坑 33/36）。残留的 `workspaces.json.<pid>.tmp` 表示「写到一半死的」。

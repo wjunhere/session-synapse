@@ -7,8 +7,12 @@
  * 同进程），而且必须用**临时 home**——往用户真实的 `~/.dsh` 里装插件、发消息、改会话名
  * 是不可接受的副作用。
  *
- * 这个脚本会真的调用模型（新建会话、发一条消息、看回答），和 `verify-send.mjs` 对
- * pi-web 做的事一样：投影/写操作链路的验证没法用替身，替身只能验证替身。
+ * 这个脚本会真的调用模型（新建会话、发一条消息、看回答、让侧问自报有没有 pwsh），
+ * 和 `verify-send.mjs` 对 pi-web 做的事一样：投影/写操作链路的验证没法用替身，替身
+ * 只能验证替身。
+ *
+ * 重启之后的行为不在这里：整个套件活着的是同一个 harness。`/btw` 那半的进程重启
+ * 验证在 `B:/vibe_program/tmp/probe-dsh-btw.mjs`（它自己会重启 harness）。
  *
  * 前置条件（缺一个就直接报错退出，不降级）：
  *   - `dsh` 在 PATH 上（`@deepseek-ai/dsh` CLI）
@@ -143,7 +147,20 @@ const store = () => page.evaluate(async () => {
   for (const workspace of workspaces) {
     const full = await (await fetch(`/synapse/api/workspaces/${workspace.id}`)).json()
     for (const thread of full.workspace.threads) {
-      threads.push({ id: thread.id, sessionId: thread.sessionId, sessionTitle: thread.sessionTitle, messages: thread.messages.map(message => `${message.kind}:${message.text}`) })
+      threads.push({
+        id: thread.id,
+        sessionId: thread.sessionId,
+        sessionTitle: thread.sessionTitle,
+        parentId: thread.parentId ?? null,
+        kind: thread.kind ?? 'branch',
+        tools: thread.tools ?? null,
+        // 工具调用名从投影的 process 里读：它是「这一轮真调了什么」的唯一证据。
+        // `ran` 只算真的跑成了的（error === null）：模型可以「试图」调一个不存在的
+        // 工具，那也会记一条调用（带 unknown tool 的 error）——那是被拒绝，不是有权限。
+        calls: thread.messages.flatMap(message => (message.process ?? []).map(entry => entry.name)),
+        ran: thread.messages.flatMap(message => (message.process ?? []).filter(entry => entry.error === null).map(entry => entry.name)),
+        messages: thread.messages.map(message => `${message.kind}:${message.text}`),
+      })
     }
   }
   return threads
@@ -164,7 +181,9 @@ try {
   check('写操作通道是 synapse', status.writeTransport === 'synapse', JSON.stringify(status.writeTransport))
   const caps = status.capabilities ?? {}
   check('能力：读会话 + 五种写操作开着', caps.openSession === true && caps.createSession === true && caps.sendMessage === true && caps.forkSession === true && caps.renameSession === true && caps.archiveSession === true, JSON.stringify(caps))
-  check('能力：没有按会话固定工具清单的宿主不做 btw/setTools', caps.btw === false && caps.setTools === false)
+  // `btw` 开：DSH 能把一个 agent 作用域钉住 + 给孩子上只读权限预设。
+  // `setTools` 关：DSH 没有「按会话固定工具清单」这回事，不能假装有。
+  check('能力：btw 开、setTools 关', caps.btw === true && caps.setTools === false, JSON.stringify(caps))
 
   await page.evaluate(() => document.querySelector('.synapse-switch button[data-view="map"]').click())
   await frame().waitForSelector('.thread-card, .empty-canvas', { timeout: 30_000 })
@@ -316,6 +335,68 @@ try {
       if (branched !== undefined) break
     }
     check('分支会话被宿主真的 fork 出来', typeof branched?.sessionId === 'string' && branched.sessionId !== created?.sessionId, `卡片 data-seq=${atSeq} → ${branched?.sessionId ?? '无'}`)
+  }
+
+  // I. /btw 侧问：真 fork + 工具真的被钉 + 真的能答
+  //
+  // 这一项用一次真模型来证「工具面被砍」：让侧问自己说它有没有 pwsh。宿主把
+  // 整套工具（含 pwsh）给普通会话，所以「没有 pwsh」只可能是因为被钉住了。
+  const BTW = '.thread-card [data-action="open-btw"]'
+  let hasBtw = null
+  for (let attempt = 0; attempt < 20 && hasBtw === null; attempt++) {
+    hasBtw = await frame().evaluate(selector => document.querySelector(selector)?.dataset.seq ?? null, BTW)
+    if (hasBtw === null) await sleep(1_500)
+  }
+  check('卡片上有「侧问 /btw」入口', hasBtw !== null, String(hasBtw))
+  let btwThread = null
+  if (hasBtw !== null) {
+    // 画布只占中间那一列：卡片贴着上沿时它的侧问按钮会落在宿主头部底下，卡片靠左
+    // 时草稿卡的 chips 会被宿主侧栏盖住（两者都是真实用户也点不到的位置）。先把
+    // 镜头往右下挪一点，让这张卡片整体落在画布中间。
+    await frame().evaluate(() => {
+      const state = window.__synapse.state
+      state.canvasCamera = { x: state.canvasCamera.x + 340, y: state.canvasCamera.y + 240 }
+      document.querySelector('.canvas-content').style.transform = `translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})`
+    })
+    await sleep(500)
+    await frame().click(BTW)
+    await frame().waitForSelector('[data-draft] .draft-tool-chip', { timeout: 15_000 })
+    const chips = await frame().evaluate(() => [...document.querySelectorAll('[data-draft] .draft-tool-chip')].map(node => ({ name: node.dataset.tool, on: node.classList.contains('is-on') })))
+    const on = chips.filter(chip => chip.on).map(chip => chip.name).sort()
+    check('草稿卡给出工具 chips，默认选中五个只读工具', JSON.stringify(on) === JSON.stringify(['glob', 'grep', 'read', 'web_fetch', 'web_search']), JSON.stringify(on))
+    // 画布在开卡时才向宿主问这个会话的工具面（宿主只有活会话才答得出），所以多
+    // 等一会儿：能长出默认那五个之外的 chip，就说明这条路真的通了。
+    let grew = chips.length
+    for (let attempt = 0; attempt < 10 && grew <= 5; attempt++) {
+      await sleep(1_000)
+      grew = await frame().evaluate(() => document.querySelectorAll('[data-draft] .draft-tool-chip').length)
+    }
+    check('chips 里长出了宿主能钉的其他工具（问的是当前会话）', grew > 5, `${chips.length} → ${grew} 个`)
+    await frame().click('[data-draft] .draft-tool-chip[data-tool="web_search"]')
+    const off = await frame().evaluate(() => document.querySelector('[data-draft] .draft-tool-chip[data-tool="web_search"]').classList.contains('is-on'))
+    check('点一下 chip 就能把工具从清单里去掉', off === false)
+    await frame().click('[data-draft] .draft-tool-chip[data-tool="web_search"]')
+    await frame().fill('[data-draft] textarea', '用 pwsh 工具执行 echo hi；如果你根本没有这个工具，就只回答 NO_TOOL。')
+    await frame().click('[data-draft] button[type="submit"]')
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await sleep(2_000)
+      btwThread = (await store()).find(thread => thread.kind === 'btw')
+      if (btwThread !== undefined && btwThread.messages.some(text => text.startsWith('assistant:'))) break
+    }
+    check('侧问被宿主真 fork 出来并登记成 btw 线程', typeof btwThread?.sessionId === 'string' && btwThread.sessionId !== created?.sessionId, `sessionId=${btwThread?.sessionId ?? '无'}`)
+    check('侧问记下了自己的工具清单', JSON.stringify(btwThread?.tools) === JSON.stringify(['read', 'grep', 'glob', 'web_fetch', 'web_search']), JSON.stringify(btwThread?.tools ?? null))
+    check('侧问没有被归档（DSH 的归档会让它再也答不了）', btwThread !== undefined && !archivedInHost().includes(btwThread.sessionId), JSON.stringify(archivedInHost()))
+    // 工具面本身：宿主按活会话报，被钉住的侧问里没有 pwsh。
+    const childTools = await page.evaluate(async id => {
+      const status = await (await fetch(`/synapse/api/status?session=${encodeURIComponent(id)}`)).json()
+      return { visible: status.tools ?? [], pinnable: status.pinnableTools ?? [] }
+    }, btwThread?.sessionId ?? '')
+    check('宿主报出侧问的实际工具面：没有 pwsh，但作用域内注册的 subagent 还在', childTools.visible.includes('read') && !childTools.visible.includes('pwsh') && childTools.visible.includes('subagent'), `visible=${JSON.stringify(childTools.visible)}`)
+    check('可钉的名字仍是完整的一套（钉的是这个会话，不是进程）', childTools.pinnable.includes('pwsh') && childTools.pinnable.includes('read'), `${childTools.pinnable.length} 个`)
+    const answered = btwThread?.messages.filter(text => text.startsWith('assistant:')).at(-1) ?? ''
+    check('侧问真的答了，而且没真跑成 pwsh（最多是试了一下被拒）', btwThread?.ran.includes('pwsh') === false && /NO_TOOL/.test(answered), `调用=${JSON.stringify(btwThread?.calls ?? null)} 跑成=${JSON.stringify(btwThread?.ran ?? null)} ${JSON.stringify(answered.slice(0, 60))}`)
+    const widget = await frame().evaluate(() => document.querySelector('.btw-widget')?.textContent?.trim() ?? null)
+    check('画布上出现侧问挂件', widget !== null, JSON.stringify(widget))
   }
 
   // F. 改名

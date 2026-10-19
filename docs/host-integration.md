@@ -85,13 +85,15 @@ pi-web 已有「下游集成」先例（`pi-web:session-row-contextmenu`、`pi-w
 
 那 `/btw` 的价值在三件事上：
 
-1. **只读工具** —— `set_tools` 落到新会话文件（`custom` 条目，`pi-web:tool-selection`），父会话不受影响
+1. **限定工具** —— 草稿卡里逐项勾选（默认 `read/grep/find/ls`），`set_tools` 落到新会话文件（`custom` 条目，`pi-web:tool-selection`），父会话不受影响
 2. **自动归档** —— 会话移出 pi-web 主列表，但**归档视图里完整可见、可打开、可继续**
 3. **折叠挂件** —— 画布上收纳成父卡片下方的小挂件
 
 顺序不能变：**fork → set_tools → prompt**。fork 前会话不存在，set_tools 无处可写；prompt 前必须设好，否则第一轮会用父会话的完整工具集。
 
 归档失败**不算失败** —— 挂件照样能用，只是 pi-web 列表里多一条。
+
+DSH 上这三件事的形态不同（工具由 `tools.restrict` 钉、**不能归档**），见 [dsh-desktop.md](dsh-desktop.md) §5.3；工具词表也由宿主报（`/synapse/api/status` 的 `tools` / `pinnableTools` / `defaultBtwTools`），画布不自带一套。
 
 ### 15.5 为什么不用 pi-btw 的机制
 
@@ -282,7 +284,7 @@ images（type/mimeType/base64）→ 图片落进**会话文件**（用请求里�
 20. **画布无法应答扩展 UI 对话框**（`extension_ui_request`，如 remote-pi 的「Agent name:」）。依赖这类对话框的会话在画布上发消息后可能没有正文回复，需回 pi-web 原生界面处理。
 26. **`custom` 条目不能一概忽略。** `customType === 'pi-web:tool-selection'` 是 pi-web 固定在会话里的工具集（btw 靠它），`cleared: true` 表示撤销固定。其余 `custom` 才是纯扩展状态。
 27. **`set_tools` 是会话级、写进会话文件**（`custom` 条目），不是每轮设置。btw 的顺序必须是 **fork → set_tools → prompt**：fork 前会话不存在，set_tools 无处可写；prompt 前必须设好，否则第一轮用父会话的完整工具集。
-28. **pi-web 的 fork 只能从当前 leaf 分叉**（body 是 `{}`，不接受 entryId）。所以 btw 与「创建分支」底层同一个调用，价值在**只读工具 + 自动归档 + 折叠挂件**三条，不在「继承上下文」。
+28. **pi-web 的 fork 只能从当前 leaf 分叉**（body 是 `{}`，不接受 entryId）。所以 pi-web 上的 btw 与「创建分支」底层同一个调用，价值在**限定工具 + 自动归档 + 折叠挂件**三条，不在「继承上下文」。（DSH 的 `/btw` 能按事件序号分叉，所以那边继承的是到那一轮为止的上下文 —— 同一个按钮，两个宿主的行为不同，见 [dsh-desktop.md](dsh-desktop.md) §5.3。）
 29. **btw 的归档是「可逆的干净」，不是「隐藏」。** 会话移出 pi-web 主列表，但**归档视图里完整可见、可继续** —— 这正是路线 2 的承诺。归档失败不能算失败（挂件照样能用）。
 30. **btw 的三个写调用全在浏览器侧**（同坑 16）。服务端只多一个 `/synapse/api/threads/:id/link`，用于登记浏览器建好的 thread，免得等 4s 重扫才出现。
 31. **btw thread 不进 `conversationCards`。** 它渲染成父卡片下方的挂件（`btwWidget`，位置由 `btwSlot` 现算，不进图布局），因为它不是主链上的一轮。提交后**不要**切到详情视图，否则刚建出的挂件立刻被藏起来。

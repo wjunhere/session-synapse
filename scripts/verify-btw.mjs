@@ -8,7 +8,10 @@ import { join } from 'node:path'
 const EXE = process.env.CHROME_PATH ?? 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe'
 const BASE = process.env.BASE ?? 'http://127.0.0.1:30143'
 const PROBE_CWD = process.env.PROBE_CWD
-const MODEL = { provider: 'trae', modelId: 'DeepSeek-V4-Flash' }
+// The probe model is overridable for the same reason as in verify-streaming-card:
+// a provider can go down wholesale (empty assistant bodies, no error surfaced),
+// and then every "the button is missing" check is really "there was no answer".
+const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 const READ_ONLY = ['read', 'grep', 'find', 'ls']
 
 const results = []

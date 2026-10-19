@@ -25,6 +25,10 @@ const PROBE_CWD = process.env.PROBE_CWD
 if (PROBE_CWD === undefined) { console.log('需要 PROBE_CWD（一次性会话目录）'); process.exit(1) }
 await mkdir(PROBE_CWD, { recursive: true })
 const probeTitle = PROBE_CWD.split(/[\\/]/).filter(Boolean).at(-1)
+// Overridable like the other probe suites: a provider that answers with an empty
+// body makes every "the branch button is missing" check fail on the probe rather
+// than on the feature.
+const MODEL = { provider: process.env.PROBE_PROVIDER ?? 'trae', modelId: process.env.PROBE_MODEL ?? 'DeepSeek-V4-Flash' }
 
 const browser = await chromium.launch({ executablePath: 'C:/Users/wjun/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe', headless: true })
 const page = await browser.newPage({ viewport: { width: 1920, height: 1100 } })
@@ -46,16 +50,16 @@ try {
   }, PROBE_CWD)
   if (created === null) throw new Error('无法创建一次性会话')
   console.log('一次性会话:', created)
-  await page.evaluate(async ({ sessionId }) => {
+  await page.evaluate(async ({ sessionId, model }) => {
     const post = async body => fetch(`/api/agent/${encodeURIComponent(sessionId)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-    await post({ type: 'set_model', provider: 'trae', modelId: 'DeepSeek-V4-Flash' })
+    await post({ type: 'set_model', ...model })
     // Thinking OFF. A reasoning model with thinking on may answer with thinking
     // only (measured: three `stop` replies whose content was one `thinking`
     // block and no prose), which projects to a usage entry with no answer — and
     // a turn with no answer has no branch button. The test would then fail on
     // its own probe instead of on the feature.
     await post({ type: 'set_thinking_level', level: 'off' })
-  }, { sessionId: created })
+  }, { sessionId: created, model: MODEL })
 
   for (const text of ['第一轮：只回复 1', '第二轮：只回复 2', '第三轮：只回复 3']) {
     await page.evaluate(async ({ sessionId, text }) => {

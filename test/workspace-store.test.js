@@ -324,6 +324,31 @@ test('branch records a btw thread with its pinned tools', async () => {
   })
 })
 
+test('the /btw tool pins can be read back for re-applying after a restart', async () => {
+  // The HOST cannot answer this question after a restart: a tool restriction is
+  // a live effect on one agent scope, not session state. So this file is the
+  // only record of "this session is a side question pinned to these tools", and
+  // it must survive a reopen — that is the entire point of the accessor.
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession({
+      id: 'parent', cwd: '/tmp/pins', filePath: '/tmp/pins/p.jsonl', parentSessionFile: null, title: '父', inheritedEntryCount: 0, contextWindow: null,
+      entries: [{ id: 'e1', order: 0, kind: 'user', text: 'q', at: '2026-01-01T00:00:01.000Z' }],
+    })
+    const workspaceId = (await store.list())[0].id
+    const parent = (await store.get(workspaceId)).threads[0]
+    await store.branch(parent.id, { sessionId: 'side', title: '侧问', kind: 'btw', tools: ['read', 'glob'] })
+    // A side question with no recorded loadout is skipped rather than guessed
+    // at: pinning nothing would be worse than not pinning.
+    await store.branch(parent.id, { sessionId: 'side-blank', title: '侧问', kind: 'btw' })
+    await store.branch(parent.id, { sessionId: 'plain', title: '分支' })
+    assert.deepEqual(store.btwPins(), [{ sessionId: 'side', tools: ['read', 'glob'] }])
+    const reopened = new WorkspaceStore(dataFile)
+    await reopened.ready
+    assert.deepEqual(reopened.btwPins(), [{ sessionId: 'side', tools: ['read', 'glob'] }])
+  })
+})
+
 test('a projection that arrives after the btw link keeps the btw marker', async () => {
   // The browser links the forked session while the projection rescan may find
   // the same file; the race must not downgrade a side question to a branch.

@@ -19,7 +19,7 @@
  * @property {string} archiveHint     what archiving keeps available
  * @property {string} startHint       empty-canvas hint
  * @property {string} toolsPinnedBy   who pinned a session's tool set
- * @property {string} btwArchiveHint  where a side question gets archived
+ * @property {string} btwArchiveHint  whether a side question gets archived, and where
  */
 
 /** @type {Record<string, HostLabels>} */
@@ -37,10 +37,14 @@ const HOSTS = {
     name: 'DSH',
     openIn: '在 DSH 中打开',
     openInShort: 'DSH',
-    archiveHint: '可在 DSH 内继续查看',
+    archiveHint: '归档后在 DSH 里只能查看，要再发言得先取消归档',
     startHint: '在 DSH 中开始一个会话后，它会作为一张卡片出现在这里。',
     toolsPinnedBy: 'DSH 为这个会话固定的工具集',
-    btwArchiveHint: '自动归档到 DSH 归档视图',
+    // DSH's archive gate (`ArchivedSessionGate`) makes an archived session
+    // reject every proposed step: a side question that got archived could never
+    // answer. So it is not archived, and the label says so instead of promising
+    // a clean session list the host cannot provide.
+    btwArchiveHint: '不自动归档（DSH 的归档会拦住它发言）',
   },
 }
 
