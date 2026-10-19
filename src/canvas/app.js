@@ -10,7 +10,8 @@
  */
 import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera, updateSettings } from './state.js'
 import { escapeHtml, displayText, laneColor, formatTime, formatTokens, contextRing } from './format.js'
-import { inlineMarkdown, renderMarkdown } from './markdown.js'
+import { renderMarkdown } from './markdown.js'
+import { enhanceRichBlocks, refreshRichBlocks } from './rich-blocks.js'
 import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON, GEAR_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, CARD_GAP_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
@@ -1821,6 +1822,9 @@ function render() {
   }
   renderStats.writes += 1
   renderStats.lastWriteMs = Math.round(performance.now() - writeStartedAt)
+  // Diagrams and formulas need a library, so they are drawn after the DOM exists
+  // (see rich-blocks.js). Everything else was HTML from the start.
+  enhanceRichBlocks(app)
 }
 
 function renderPreservingDetailScroll() {
@@ -2388,6 +2392,9 @@ window.addEventListener('message', event => {
   if (data.type === 'synapse:theme') {
     document.documentElement.dataset.theme = data.dark === true ? 'dark' : 'light'
     applyHostTokens(data.tokens)
+    // A diagram is a coloured image: mermaid drew it for the OLD theme, so the
+    // cached SVGs have to go and the diagrams be drawn again.
+    refreshRichBlocks(app)
     return
   }
   // How much chrome the canvas should bring itself. A host that already shows

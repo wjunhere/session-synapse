@@ -18,7 +18,7 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 - **本仓库的 LSP 曾经只报语法错**：没有 `jsconfig/tsconfig` 时 `checkJs` 关闭，一个拼错的标识符或不存在的方法都会显示 OK。`jsconfig.json` 已开，`include` 只含交付代码（`src` + `bin`），基线 **0 问题** —— 基线为 0 才有意义，否则真错误会被噪音淹。
 - **改了先校准再信**：往 `src/` 放一个只有语义错的文件（未声明的名字、字符串上调用不存在的方法），`npm run check` 必须以退出码 1 报出这两条，再去读那串 “OK”。
 - **TypeScript 7 要显式 `types: ["node"]`**（不再自动包含 `@types/*`），所以 `typescript` + `@types/node` 是 devDependency。
-- **`test/` 与 `scripts/` 故意不在 `include` 里**：它们是开发用探测代码，多处 `frame.evaluate()` 里用浏览器全局、还用 `file:///` 绝对 URL 导入 playwright-core，合起来约 79 条诊断（全是良性），会把真问题埋掉。要审它们就临时放宽 `include`。
+- **`test/` 与 `scripts/` 故意不在 `include` 里**：它们是开发用探测代码，多处 `frame.evaluate()` 里用浏览器全局，合起来约 79 条诊断（全是良性），会把真问题埋掉。要审它们就临时放宽 `include`。`src/canvas/vendor/` 同样被排除：那是第三方构建产物（mermaid、temml），不手改。
 - **语言服务器（tsserver，内置 TS 5.x）比本地 `tsc`（7.x）宽松**：本轮 TS 7 报出 5 条 TS 5 看不见的错误（`@param {object}` 太泛导致的取属性失败）。以 `npm run check` 为准。
 - **LSP 会缓存改动前的版本** —— 改完 typedef 后必须 `lsp reload` 再测，否则会看到已经不存在的错误。
 
@@ -26,13 +26,15 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 138 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 实例锁 14 + pi-web 动作 15 + 会话对账 4）
-npm run verify                            # 全套回归：起服务 → 24 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
+npm test                                  # 158 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 转写窗口 6 + markdown 15 + 实例锁 14 + pi-web 动作 15 + 会话对账 4）
+npm run verify                            # 全套回归：起服务 → 26 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
 npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），44 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 ```
 
-**两个回归入口是分开的**，因为世界不同：`npm run verify` 的 24 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
+**两个回归入口是分开的**，因为世界不同：`npm run verify` 的 26 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
+
+两个套件专门守详情视图（`docs/canvas-ui.md` §35）：`verify-detail-window.mjs` 守「只渲染最后 50 条 + 显示更早的 + 空闲时一次都不重写 DOM + 真鼠标点击不被重建吞掉」，`verify-markdown.mjs` 守 mermaid/LaTeX/表格/嵌套列表的渲染。后者靠**发一条带全部语法的 prompt** 造数据（prompt 本身就是会话里的用户消息），所以既不造假数据也不用等模型写出图来。
 
 ### 浏览器从哪来（`scripts/browser.mjs`）
 
@@ -88,7 +90,7 @@ node scripts/verify-clean-probes.mjs      # clean-probes 自己：不许碰活�
 ## 28. 一条命令跑全套回归（M4-3，2026-10-14）
 
 `npm run verify` = `scripts/verify-all.mjs`：按前置条件检查上游 pi-web → 用**隔离的临时数据文件**与一次性
-`PROBE_CWD` 起 `bin/synapse.js start` → 顺序跑 24 个套件（每个都带 `BASE`/`PROBE_CWD`/`CHROME_PATH`）→
+`PROBE_CWD` 起 `bin/synapse.js start` → 顺序跑 26 个套件（每个都带 `BASE`/`PROBE_CWD`）→
 停服务 → `clean-probes.mjs --data <临时文件>` → 打一张表。每个套件的完整输出写到 `<run>/logs/`，**成功才删
 run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户自己启的比明确报错更糟），也不碰用户真实的
 `workspaces.json`。CI（`.github/workflows/ci.yml`）只跑 `npm run check` + `npm test`。仓库已建：`wjunhere/session-synapse`

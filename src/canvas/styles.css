@@ -833,6 +833,21 @@ html[data-embedded] {
 .thread-answer table { display: block; max-width: 100%; margin: 0 0 9px; overflow-x: auto; border-collapse: collapse; font-size: calc(11px * var(--card-font-scale, 1)); }
 .thread-answer th, .thread-answer td { border: 1px solid var(--line); padding: 4px 7px; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .thread-answer th { background: var(--surface-sunken); font-weight: 600; }
+/* 卡片上的同一批语法，字号跟卡片缩放走（--card-font-scale）。 */
+.thread-answer a.md-link { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+.thread-answer hr { margin: 0 0 9px; border: 0; border-top: 1px solid var(--line); }
+.thread-answer h4, .thread-answer h5, .thread-answer h6 { margin: 0 0 8px; color: var(--ink); font-size: calc(12px * var(--card-font-scale, 1)); font-weight: 600; }
+.thread-answer .md-task { margin-right: 5px; }
+.thread-answer .md-image { max-width: 100%; border-radius: 5px; }
+.thread-answer .md-image-path { color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); }
+.thread-answer .md-code-lang { display: block; margin-bottom: 5px; color: var(--ink-3); font-family: var(--font-mono); font-size: calc(9px * var(--card-font-scale, 1)); letter-spacing: .08em; text-transform: uppercase; }
+.thread-answer .md-mermaid { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-sunken); padding: 8px; text-align: center; }
+.thread-answer .md-mermaid svg { max-width: 100%; height: auto; }
+.thread-answer .md-mermaid[data-rich="pending"] { min-height: 28px; color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); text-align: left; white-space: pre-wrap; }
+.thread-answer .md-mermaid[data-rich="error"] { color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); text-align: left; white-space: pre-wrap; }
+.thread-answer .md-math-block { overflow-x: auto; text-align: center; }
+.thread-answer .md-math-block[data-rich="pending"] { color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); text-align: left; white-space: pre-wrap; }
+.thread-answer .md-math-block[data-rich="error"] { color: var(--ink-3); font-family: var(--font-mono); font-size: calc(10px * var(--card-font-scale, 1)); text-align: left; white-space: pre-wrap; }
 .thread-answer-empty { color: var(--ink-3); }
 .thread-answer-pending, .message-pending p { color: var(--ink-3); font-style: italic; }
 .thread-answer-error {
@@ -1082,6 +1097,23 @@ html[data-embedded] {
 .message-body table { display: block; max-width: 100%; margin: 0; overflow-x: auto; border-collapse: collapse; font-size: 12px; }
 .message-body th, .message-body td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; overflow-wrap: anywhere; white-space: normal; }
 .message-body th { background: var(--surface-sunken); font-weight: 600; }
+/* 这次新增的语法：链接、分隔线、h4-h6、任务框、图、公式、图片。
+   「不可渲染」的两类（加载中的图、渲染失败的图）显示源码 —— 失败要看得见，
+   不是留一个空框。 */
+.message-body a.md-link { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+.message-body hr { margin: 0; border: 0; border-top: 1px solid var(--line); }
+.message-body h4, .message-body h5, .message-body h6 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+.message-body .md-task { margin-right: 6px; }
+.message-body .md-image { max-width: 100%; border-radius: 6px; }
+.message-body .md-image-path { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; }
+.message-body .md-code-lang { display: block; margin-bottom: 7px; color: var(--ink-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.message-body .md-mermaid { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-sunken); padding: 12px; text-align: center; }
+.message-body .md-mermaid svg { max-width: 100%; height: auto; }
+.message-body .md-mermaid[data-rich="pending"] { min-height: 34px; color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; text-align: left; white-space: pre-wrap; }
+.message-body .md-mermaid[data-rich="error"] { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; text-align: left; white-space: pre-wrap; }
+.message-body .md-math-block { overflow-x: auto; text-align: center; }
+.message-body .md-math-block[data-rich="pending"] { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; text-align: left; white-space: pre-wrap; }
+.message-body .md-math-block[data-rich="error"] { color: var(--ink-3); font-family: var(--font-mono); font-size: 12px; text-align: left; white-space: pre-wrap; }
 
 .message-branch, .message-fold { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; margin-left: 0; border: 0; border-radius: 5px; background: transparent; padding: 0 6px; color: var(--ink-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .message-branch { margin-left: auto; }

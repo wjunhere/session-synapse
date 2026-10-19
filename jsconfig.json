@@ -30,5 +30,8 @@
     "maxNodeModuleJsDepth": 0
   },
   "include": ["src/**/*.js", "bin/**/*.js"],
-  "exclude": ["node_modules", ".pi-web-src"]
+  // `src/canvas/vendor/` is third-party build output (mermaid, temml): ~3.6 MB of
+  // minified code that is shipped as-is and never edited here. Checking it would
+  // cost minutes and report nothing actionable. See that folder's README.
+  "exclude": ["node_modules", ".pi-web-src", "src/canvas/vendor"]
 }

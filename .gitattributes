@@ -1,0 +1,5 @@
+# GitHub 的语言统计与 diff 噪音：vendored 的构建产物不是这个仓库的代码。
+# 目录说明见 src/canvas/vendor/README.md。
+src/canvas/vendor/* linguist-vendored
+src/canvas/vendor/* linguist-generated
+src/canvas/fonts/* linguist-vendored

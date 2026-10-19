@@ -263,7 +263,9 @@ type HostEvent =
 |---|---|---|
 | `icons.js` | 图标常量集 | — |
 | `format.js` | 文本/时间/token 格式化 + 上下文圆环 | — |
-| `markdown.js` | 卡片用的 markdown 子集 + 渲染缓存 | format |
+| `markdown.js` | 卡片与转写用的 markdown 子集 + 渲染缓存 | format |
+| `detail-window.js` | 转写窗口的纯算术（尾巴 N 条、锚点撑回） | — |
+| `rich-blocks.js` | mermaid / temml 的按需加载与渲染（含渲染缓存） | — |
 | `storage.js` | localStorage 读写、取值校验、废弃键清理 | — |
 | `state.js` | `state` 对象 + 写回 localStorage 的 helper | storage |
 | `images.js` | 图片读取/压缩/prompt payload | format |
@@ -324,7 +326,10 @@ src/
   canvas/host.js             与宿主的全部对话（写操作的两条通道都在这里选）
   canvas/host-labels.js      宿主名与文案（按钮标题、空状态提示）
   canvas/format.js           文本/时间/token 格式化 + 上下文圆环
-  canvas/markdown.js         卡片用的 markdown 子集（含渲染缓存）
+  canvas/markdown.js         卡片与转写用的 markdown 子集（含渲染缓存）
+  canvas/detail-window.js    详情视图只渲染转写的哪一段（纯算术，可单测）
+  canvas/rich-blocks.js      mermaid 图与 LaTeX 公式的按需加载与渲染
+  canvas/vendor/             第三方构建产物（mermaid / temml），直接发出去，见该目录 README
   canvas/icons.js            图标集
   canvas/images.js           图片附件管线（读取 + 大图压缩 + prompt payload）
   canvas/bridge.js           注入 pi-web 的切换条与消息桥

@@ -171,7 +171,7 @@ export function createAssetHandler() {
       res.writeHead(302, { location: '/synapse/' })
       return res.end()
     }
-    const asset = assets.get(path) ?? canvasModule(path)
+    const asset = assets.get(path) ?? canvasModule(path) ?? vendorModule(path)
     if (asset === undefined) return false
     // Binary assets (the vendored woff2 files) must be served as bytes: reading
     // them as utf8 would corrupt the font table and silently break the render.
@@ -195,6 +195,19 @@ function canvasModule(path) {
   const match = /^\/synapse\/([a-z0-9-]+)\.js$/.exec(path)
   if (match === null) return undefined
   return { file: `${match[1]}.js`, type: 'text/javascript; charset=utf-8' }
+}
+
+/**
+ * `/synapse/vendor/<name>.js` → a third-party build in `canvas/vendor/`.
+ *
+ * A separate rule so the vendored files cannot be mistaken for our modules (and
+ * so `canvasModule`'s flat-name rule keeps its guarantee: no dots, no slashes).
+ * See `src/canvas/vendor/README.md` for what is in there and why.
+ */
+function vendorModule(path) {
+  const match = /^\/synapse\/vendor\/([a-z0-9-]+)\.js$/.exec(path)
+  if (match === null) return undefined
+  return { file: `vendor/${match[1]}.js`, type: 'text/javascript; charset=utf-8' }
 }
 
 /** True when this request belongs to the Synapse surface. */
