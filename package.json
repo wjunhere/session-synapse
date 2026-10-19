@@ -1,6 +1,6 @@
 {
   "name": "@wjunhere/session-synapse",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A visual, non-linear conversation workspace for the pi coding agent — session map, branches, and canvas organization.",
   "type": "module",
   "main": "src/index.js",
