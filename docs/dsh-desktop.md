@@ -51,6 +51,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 - **注入的上下文也是 `user/message`**：同一个事件类型既承载人的提问（`data.source.kind === 'user'`），也承载 harness 注入的每一份快照（实测出现过的 kind：`runtime-context`、`agent-instructions`、`skill-catalog`、`time-context`、`tool-jobs`、`agent-message`、`subagent-settled`、`plugin`、`compact-checkpoint`）。只有 `user` 能变成卡片，否则画布会被系统提示塔满。
 - **投影条目的 id 必须是定宽的 `seq`**（`00000008`）：画布用 `sourceEntryId <= seedBoundary` 的**字符串**比较定位分支的父卡，不补零会让 `'100' < '12'`。
 - fork：header 的 `parentSession` + 观察到的 `inheritedEventCount`（**事件数**，不是 id）。投影器自己把前缀丢掉，并把最后一个被继承事件的定宽 id 当 `inheritedEntryCount` 返回 —— store 与画布两边比的都是 id。
+- **Agent Teams 的团队名单也在 Lead 的日志里**：`team/member`（v2）记录 `{member:{id,name,description,provider,context,phase}}`，同一 id 后者覆盖前者；成员的 running 状态是进程内的，不在日志里。画布据此把 teammate 画成 Lead 卡片下的一排 chip（§9）。
 - 离线读日志用 `scripts/dsh-session-events.mjs`（多帧 zstd）；插件运行时不用它。
 - 画布数据文件：`$DSH_HOME/session-synapse/workspaces.json`（`$DSH_HOME` 优先于 `~/.dsh`）。
   与上游 dsh-synapse 的 `$DSH_HOME/synapse/workspaces.json` **分开**，免得两个插件抢同一份数据的写权；要搬布局用 `synapse import --from`。
@@ -74,7 +75,7 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 | profile 里装的是什么 | 更新怎么做 |
 |---|---|
 | **本地路径 / `link:`**（改代码时用这个） | app 直接读那个目录：**重启 app** 就是更新。画布自己的 HTML/CSS/JS 是每次请求从磁盘读的（新增的画布文件不重启也生效），但**宿主半区**（插件主入口、路由）与**客户端半区**（标签与消息桥的 bundle）都是启动那一刻装载/打包的，改这两处必须重启。 |
-| **注册表包名**（`@wjunhere/session-synapse`） | 设置 → 插件 → 该行出现「**可更新**」时点「**更新**」（内部就是「卸载 → 按原启用状态装新版本」，随后按提示重启）。没这个按钮的插件（非官方条目），UI 的说法是**卸载后重新安装** —— 安装框对已安装的包会直接拒绝并给出这句话。页面**没有版本选择器**，要钉版本就在安装框里写 `包名@0.1.2`。 |
+| **注册表包名**（`@wjunhere/session-synapse`） | 设置 → 插件 → 该行出现「**可更新**」时点「**更新**」（内部就是「卸载 → 按原启用状态装新版本」，随后按提示重启）。没这个按钮的插件（非官方条目），UI 的说法是**卸载后重新安装** —— 安装框对已安装的包会直接拒绝并给出这句话。页面**没有版本选择器**，要钉版本就在安装框里写 `包名@0.2.0`。 |
 
 两个坑：
 
@@ -82,6 +83,19 @@ client bundle 契约：`window.__ModuleLoader__.load({ id, factory })`，`factor
 - **别手改 desktop profile**：app 独占它（`dsh plugin --profile desktop` 会被拒），手改也会被 app 写回的 `*.bak-<stamp>` 顶掉。
 
 判断「运行中的实例是不是旧的」有一个直接办法：`/synapse/<今天新增的文件>.js` 能取到（资源按路径读盘），而 `/synapse/vendor/*` 回 404 —— 就是宿主半区还停在启动那一刻，重启即可（重启前 mermaid/公式会停在源码形态，不会白屏）。
+
+### 4.2 插件页那一行显示什么（标题 / 描述 / 图标）
+
+插件行与插件详情页的素材由**包自己**提供，宿主半区**不激活插件**、直接读包目录：
+
+| 显示项 | 来源 | 本仓库现状 |
+|---|---|---|
+| 标题 / 描述 | 导出的 `locale/*.json` 里 `meta.title` / `meta.description` | 没有 locale 目录：回落到 `package.json` 的 `name` / `description`（插件行因此显示包名与那句英文描述） |
+| 图标 | 包根 `package.json` 顶层的 `icon`（优先于 `./icon` 导出）；SVG/PNG/JPEG/WebP，≤256 KiB，必须留在包内（绝对路径、URL、指向包外的软链一律拒绝） | `icon.svg`，顶层 `"icon": "./icon.svg"` + `"./icon"` 导出 + 进 `files` |
+
+- 图标被宿主读成 **base64 data URL**，客户端按 `<img>` 渲染（不是内联 SVG）：位置是插件行的 **48px 图标位**，图实际按 **36px** 画（`CARD_ARTWORK_SIZE = 36`，与官方包清一色 `viewBox="0 0 36 36"` 对齐）；解码失败退回宿主的默认素材。
+- 所以 `icon.svg` 的约定：36×36 viewBox、1:1 无缩放、浅色与深色背景都要看得清、**不引用任何外部资源**。
+- **改了图标什么时候生效**：注册表包要「更新/重装」（宿主读的是装进 profile 的那份 `package.json`），本地 `link:` 安装重启 app 即可 —— 与 §4.1 同一条规则。实测的分界线是**目录**：`package.json` 与图标字节是**每次查询现读**的（同一个包目录里换图，F5 就能看到），但「包名 → 目录」的解析在**启动那一刻**就钉住了，所以刚改成 `link:` 的包**必须重启**，F5 不够。
 
 ## 5. 画布侧的宿主差异
 
@@ -245,7 +259,35 @@ UI 探针里有两处必须记住的细节：`data-thread` 是**画布线程 id*
 
 desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片能跳会话。host realm 可调试：CDP `ws://127.0.0.1:9230/devtools/page/<id>`（target 是 `dsh://host`）。
 
-## 7. 坑（编号接仓库全局序列）
+**团队挂件怎么验（§9）**：单测覆盖名单解析（`teamMembersFromEvents`）与 store 的 `kind:'team'` 投影；再有一个临时探针（不在仓库里）复制**真实的** Lead + 它的 7 个 teammate 会话到一个临时 `DSH_HOME`，装本仓库插件、起隔离 harness，断言 `/synapse/api/workspaces` 里只有名单内的成员成为 `kind:'team'` 线程（名字来自 Lead 日志、`parentId` 指向 Lead、冷会话 `status:'inactive'`、transcript 非空），且非成员子会话没有进语料。chip 的排版与颜色另用 seed 的 `workspaces.json` + 独立运行画布验（观感只能看图）。
+
+## 7. 卡片间呼叫（intercom）
+
+卡片 footer 最左那个听筒按钮，把**这一张卡片**（问题 + 它已有的回答 + 可选附言）当成一条 intercom 消息发给**另一个正在运行的会话**。走的是 `dsh-intercom` 自己的面板路由 —— 它是独立包，本仓库一行都不改它。
+
+**为什么只有 DSH 侧有。** `/intercom/*` 与 `/synapse/*` 由**同一个 dsh webServer** 提供（`dsh-intercom` 用 `webServer.register({ kind: 'prefix', path: '/intercom' })`），所以画布 iframe 里一条相对 `fetch` 就通，不用 token、不用 cookie。代价是它**必须同源**：面板不发 `access-control-allow-origin`（实测响应头里没有），别的 origin 的页面连响应都读不到 —— pi-web 那半因此永远开不了。`capabilities.intercom` 只在 `src/adapters/dsh.js` 里是 true，`src/adapters/contract.js` 的默认值是 false。
+
+| 画布动作 | 路由 | 语义 |
+|---|---|---|
+| 取名单 | `GET /intercom/roster` | `{enabled, transport, sessions[], senders[]}`；**404 = 这个宿主没装 dsh-intercom** |
+| 发一条 | `POST /intercom/send {from,to,message}` | 200 `{delivered:true}`；400 `from` 不是本进程托管的会话 / `from===to` / 参数不全；409 `enabled:false`；502 带 `{delivered:false, reason}` —— **reason 原话透给用户**，不换成通用文案 |
+| 同步别名 | `POST /intercom/name {session,alias}` | 改名之后调用；别名活在 intercom 面板自己的内存里（那个进程重启就丢），持久的那份名字是宿主的会话标题 |
+
+**谁能当呼叫方。** `from` 必须是**本进程托管的活会话**（roster 的 `senders`），别的会被面板直接拒。所以画布不能以「用户」或「画布自己」的身份发消息：`resolveSender()` 优先用卡片所属的那个会话，它不在名单里时**回落到当前会话**，并在选择器里把「改以当前会话的身份发出」明说出来 —— 而不是悄悄换个发言人。名单会在两次发送之间变，所以发送前再解析一次。
+
+**谁能当目标。** 目标必须是**已连 broker 的活会话**。roster 的行里混着 Agent Teams 的 teammate / subagent（**裸 uuid**，画布上没有它们的卡片），所以目标只收 `session-` 前缀的行（`isSessionRow()`）：摆出没有卡片的候选，等于让用户点一个必然对不上的东西。`from === to` 由面板自己拒，画布也不会把自己列进目标。
+
+**`delivered:true` 只证明 broker 受理了。** 目标连着 broker 就投到它的 socket，没连就进 broker 的**内存 mailbox**（24h / 256 条，broker 重启即丢）。「对方真的开始处理」是另一件事：默认 `inboundTrigger=always`，所以活着的目标会立刻起一轮，**正在跑的会话会被 steer 进当前轮**（选择器里那句警告就是这个意思）。反向通道要单独说：面板发出的消息不带 `expectsReply`，所以**对方的回复不会自动回到呼叫方**；对方得用自己的 intercom 工具发回来，那时呼叫方会话里多一条 `source.kind === 'intercom'` 的 `user/message`，画布把它画成一张「呼叫」卡片（头部 `.call-chip`、标题是呼叫方的会话名、footer 一个图标钮 `data-action="open-caller"` 跳回去）。既然 `delivered` 之外没有更强的回执，发送失败就留在卡片上（`.card-call-trace.is-failed`），不假装干净。
+
+**它是双向的。** 对方「自己回信」很常见：目标 agent 常直接用它的 intercom 工具发回来，于是**呼叫方的画布上也会长出一张来自对方的呼叫卡片**。两边看到的是同一种卡片，卡片本身不区分「我发起的」和「别人发来的」，方向由标题上的会话名给 —— 实测标题是 `来自「画布改的标题」`，取的就是呼叫方会话的**标题**（本画布上找不到那条会话时才退到 id 前 8 位），footer 那个图标钮带 `data-session` = 呼叫方 sessionId。验证脚本踩过一次：按 `.call-chip` 抓「第一张」时抓到的正好是那张回信卡片。
+
+**痕迹与边界。** 呼叫痕迹只存在**内存**（`state.intercomCalls`），**绝不写 `workspaces.json`**（铁律 7：同一份画布数据只能有一个写入者），刷新页面就没了。选择器里的身份与目标列表都在**打开那一刻**重新解析（见坑 67）。
+
+**改名同步别名是一处有意的非致命例外。** 改名成功后（宿主已经接受）再调一次 `/intercom/name`，让对面看到名字而不是 id 前缀；别名没同步上**不回滚改名**，只把原因显示出来 —— 与 `host.js` 里 btw 归档那句「装饰性的一步不许拖垮真正的一步」同一条原则。
+
+**能力位是两段式。** `/synapse/api/status` 的 `capabilities.intercom` 说的是「这个宿主类**是**会挂 intercom 面板的那种」，不是「插件装了」—— 那个包不暴露 cordis 服务，也没有路由表可以问。所以画布开机后再探一次 `GET /intercom/roster`：404 / `enabled:false` → 不渲染呼叫按钮。两段都真，才可能有按钮。
+
+## 8. 坑（编号接仓库全局序列）
 
 44. **桌面不是另一套接口。** 判断「某能力 desktop 有没有」时先看 webServer 那条转发规则（§1），别按 README 的 profile 声明下结论：desktop 上 `webServer`、`/plugins/*`、iframe 相对 URL 全都在。
 45. **会话文件是多帧 zstd。** `zlib.zstdDecompressSync` 只解**第一帧**（实测 766 KB 的文件只拿到 header 一行）——append-only 日志每段一个 frame，必须逐帧解（DSH 自己用 `NodePrivateZstdFrameDecoder`）。在 host 里读冷会话一律走 `ctx.sessionQuery`，自己解文件只在离线场景用。
@@ -269,3 +311,36 @@ desktop 侧的肉眼验收：遮罩里画布出卡片、主题跟随、点卡片
 63. **宿主的 `[role="tablist"]` 不止一个，而「有当前会话」不等于「有标签行」。** 侧栏自己就是一排 tab（实测 `_tabStrip_…`），所以「任何 tablist」不是要问的问题；而欢迎页会为自己的输入框保留一个会话、却不渲染会话标签行（实测：`tabs: []` 但 `currentSessionId()` 非空）。所以：① 认「哪一排里有我们自己注册的标签」（`conversationTabList()`）；② 浮动胶囊的显示条件看 DOM，不看会话 id。搞错的症状是欢迎页的入口消失，而地图没有其它入口。
 64. **标签是宿主的状态，画布不能自己藏遮罩就完事。** 点 对话 是宿主切标签，我们只会在视图卸载时收遮罩；但欢迎页浮动胶囊打开的那层遮罩**没有任何东西会卸载它**（地图视图从没被挂载过），于是切到会话后画布还盖在对话上（实测：套件点输入框被 iframe 拦住，30s 超时）。两条修法合起来才完整：`syncMapWithHost()`（标签行说当前不是地图 → 收遮罩）与 `leaveMap()`（只有真的渲染了标签行的宿主才由它接管，否则自己收）。
 65. **`postCurrent` 的去重会把首次加载需要的那一条吃掉。** 画布 iframe 是在插件 apply **之后**才加载的，`apply` 末尾那条 `synapse:current-session` 落在还没装监听的文档上就没了；而 `if (id === lastSessionId) return` 让 `map-ready` 时的重发也变成 no-op —— 于是画布永远不知道宿主在哪（用户看到的：地图固定在某个工作区不动）。修法：`postCurrent(force)`，`map-ready` 那一处强制发（`bridge.js` 与 `client.js` 两处都有这个坑，一起修了）。
+66. **`user/message` 里非 `user` 的一律丢，会把跨会话呼叫整条路堵死；只放行还不够，turn 锚点必须一起设。** 投影原先把 `data.source.kind !== 'user'` 的 `user/message` 全当注入上下文丢（§3 那条「注入的上下文也是 `user/message`」的纪律），于是 intercom 的 relay 在画布上根本不存在。放行 `kind === 'intercom'` 时还有第二半：**给它设 `state.turnEntryId`**。画布把一轮算成「一个 `user`/`call` 条目到下一个」，relay 若不占这个起点，它的回答会被粘到**上一张**卡上，把那答案覆盖成对另一个问题的回答（症状是卡片答非所问、而且没有新卡片长出来）。所以 `conversationCards()`、`threadTranscript()`、`threadMessage()` 三处都要认 `'call'`。
+67. **roster 只按需刷新，所以按钮不能拿它当渲染门控。** 画布只在**开机**与**打开选择器**这两个时点拉 roster。若呼叫按钮的渲染还要求「这张卡片的会话在 roster 的 `senders` 里」，就会死锁：开机之后才变活的会话永远长不出按钮，而唯一能刷新 roster 的那条路（打开选择器）正好被缺掉的按钮挡住。所以按钮的判据只有两个开机事实（`capabilities.intercom` + `intercom.available`），「由谁发出、有没有目标」留到打开选择器时判 —— 判不出来就把选择器**开着**并写明原因，而不是让按钮看着能点、点了没反应。
+68. **没起过别名时，注入抬头只有 id 前 8 位。** dsh-intercom 给目标注入的正文抬头是 `**From <alias|id 前 8 位>** (<cwd>)`，没人改过名时对方看到的是 `**From f3351715**` 这种。所以画布自己拼的正文里再写一遍来源会话、工作目录与卡片锚点：卡片上唯一可读的身份就是它，别的都靠 roster 那张随时会变的表。
+
+69. **成员的 running 状态不移动会话的更新时间。** 一个 teammate 从 running 变 inactive 时没有新的会话事件，`updatedAt` 不变；5s 扫描如果只比 `updatedAt`，Lead 卡片下的 chip 会一直显示「正在工作」。所以扫描把 `running` 也放进 `seen` 一起比（`{updatedAt, running}`），状态翻转时也重投一次；反向（inactive→running）本来就有 turn 事件、会动。
+
+## 9. Agent Teams 成员（teammate 挂件）
+
+Agent Teams 的 teammate 是**普通会话**（header `origin: "subagent"`、`parentSession` 指向 Lead、`delegationDepth: 1`），所以画布能读到它的完整 transcript；但**团队名单**只存在于 **Lead 的会话日志**里，不在成员的日志里，也没有跨进程的服务可问。
+
+| 要显示的东西 | 来源 | 持久? |
+|---|---|---|
+| 名单 / 名字 / 描述 / 阶段 | Lead 日志里的 `team/member`（`member:{id,name,description,provider,context,phase}`；phase 只有 provisioning / active / failed） | 持久 |
+| 谁在跑 | `ctx.agents.get(memberId)?.status === 'running'`（`active` 只说明它被创建过） | 进程内 |
+| 成员的 transcript | 成员自己的会话日志（`sessionQuery.observeSession(id)`，冷会话可读） | 持久 |
+
+`src/adapters/dsh.js` 的 `includeTeamMembers`（默认开）做三件事：
+
+1. `listSessions()` 只为「有 subagent 子会话」的 Lead 读一次名单，按 Lead 的 `updatedAt` 缓存；活 Lead 不重读 —— 它的 `team/member` 事件会原地更新缓存，每次 replay 也会从事件里重建。
+2. 只把**名单里的**子会话放进语料（一次性 subagent 仍被过滤；`includeSubagents: true` 才全放进来）。
+3. 给成员会话带上 `teamMember: {role,name,description,phase,status,error?}`（`readHistory` 里刷新 status）。
+
+store 把成员会话存成 `kind: "team"` 的线程，`parentId` 仍由 `parentSessionFile` 指向 Lead 线程；画布**不给它画 turn 卡片**（与 /btw 同一规则），而是在 Lead 最新一张卡下面挂一个**折起来的团队药丸**（`[团队] N` + 每人一个状态点 + 箭头），点它才展开成一排 chip（[canvas-ui.md](canvas-ui.md) §37）。点 chip 进它自己的详情视图；详情只读。
+
+**在 DSH 中打开**：client 半区先用 `ctx.sessions.subagentAddress(id)` 把成员 id 换成 `{parentSessionId, childSessionId, mode}` 的 addressed-subagent 地址，再 `uiWorkspace.openSession(address)` —— 只传裸 id 的话宿主不认子会话的转写。
+
+**不在第一版里的几件事**：
+
+- 名单里没有会话记录的成员不会出现在挂件上（挂件按成员**线程**建，不按 roster 建；实测能创建出来的 teammate 都有会话，失败的 provisioning 记录可能在写 child 之前就结束了）。
+- teammate 收到的 Team 消息是 `user/message` 且 `source.kind === 'agent-message'`，投影仍按注入上下文丢掉（与 intercom 之外的 kind 同一条纪律），所以成员 transcript 里看不到「Lead 后来又给它发了什么」。
+- 给 member 发消息不能用 `sessionController.prompt`（子会话会被 `session/agent-busy` 拒，要求 addressed-subagent 投递）；要做得走 `agentTeams.sendMessage`（按名字）或 `subagents.prompt({parentSessionId, childSessionId, mode:'continuable'})`。
+
+配置（`cordis.patch.yml` 的 `synapse` 条目）：`includeTeamMembers: false` 关掉整个挂件。

@@ -20,6 +20,23 @@
  * @property {string} [modified]  Host-provided display time
  * @property {number} [size]      File size in bytes
  * @property {number} [mtimeMs]   File mtime, used to skip unchanged rescans
+ * @property {'subagent'} [origin]
+ *   A delegated child session of another host session. Only hosts that keep
+ *   such children as sessions of their own set this (DSH does); the canvas uses
+ *   it to decide whether the child should be projected at all — a team member is
+ *   projected as a `kind: 'team'` thread, any other child only appears when the
+ *   adapter chooses to list it.
+ * @property {object} [teamMember]
+ *   When this session IS one named agent of an Agent Team: the durable roster
+ *   row the canvas shows on its chip, plus the live status. The adapter is the
+ *   only layer that can know this (membership lives in the Lead's log), so a
+ *   child session without this field is not projected by default.
+ * @property {'teammate'} teamMember.role
+ * @property {string} teamMember.name          the permanent teammate name
+ * @property {string} teamMember.description   what this agent was spawned for
+ * @property {'provisioning'|'active'|'failed'} teamMember.phase
+ * @property {'running'|'inactive'|'provisioning'|'failed'} teamMember.status
+ * @property {string} [teamMember.error]
  *
  * @typedef {object} SessionHistory
  * @property {object|null} header      Host session header
@@ -32,6 +49,11 @@
  *   projection entry ids — entry ids are 8 hex digits, and comparing one to a
  *   count is false for every id.
  * @property {string|null} cwd
+ * @property {object|null} [teamMember]
+ *   The fresh roster row for a Team-member session, in the same shape as
+ *   `HostSession.teamMember`; null for every ordinary session. Returned from
+ *   `readHistory` because the status (running/inactive) is process-local and
+ *   must not be served from the listing row's stale copy.
  * @property {{ provider: string, id: string }|null} [model]
  *   The model in effect at the end of the session, read from its last
  *   `model_change` entry.
@@ -61,6 +83,15 @@
  *   loadout, DSH masks one agent scope and puts the child in its read-only
  *   permission preset)
  * @property {boolean} setTools     pin a session's tool loadout
+ * @property {boolean} intercom     the canvas may call the `dsh-intercom` panel
+ *   routes (`/intercom/roster`, `/intercom/send`) on its own origin.
+ *
+ *   This bit says the HOST CLASS is the kind that serves them, NOT that
+ *   `dsh-intercom` is installed: the plugin exposes no cordis service and no
+ *   route table to ask, so the canvas probes `GET /intercom/roster` once and
+ *   treats 404 / `enabled:false` as "not available". Declaring it true here and
+ *   letting the live probe decide is the honest split — the alternative is a
+ *   capability that claims knowledge the host does not have.
  *
  * @typedef {object} SynapseAdapter
  * @property {string} id
@@ -147,6 +178,7 @@ export class HostRequestError extends Error {
     // page.
     btw: false,
     setTools: false,
+    intercom: false,
     ...overrides,
   }
 }

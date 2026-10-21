@@ -63,6 +63,64 @@ const DEFAULT_SCAN_INTERVAL_MS = 5_000
 export const BTW_DEFAULT_TOOLS = ['read', 'grep', 'glob', 'web_fetch', 'web_search']
 
 /**
+ * The phases the durable Agent Teams roster records for one member.
+ *
+ * `inactive` is deliberately absent: the log only ever stores
+ * provisioning/active/failed, and "no turn is running right now" is LIVE state
+ * overlaid from the agent registry (see `teamMemberStatus`).
+ */
+const TEAM_PHASES = ['provisioning', 'active', 'failed']
+
+/**
+ * Decode one `team/member` payload into the roster row the canvas needs.
+ *
+ * The event is an Agent Teams plugin event (version 2), so it is not part of the
+ * core session-event vocabulary — but it is still in the Lead's log, which is
+ * exactly where durable membership lives. Unknown/invalid records are skipped
+ * rather than failing the whole roster: one malformed row must not hide the
+ * other agents.
+ *
+ * @param {any} member
+ * @returns {{id: string, name: string, description: string, provider: string|null, context: 'fresh'|'fork', phase: 'provisioning'|'active'|'failed', error: string|null}|null}
+ */
+function parseTeamMember(member) {
+  if (member === null || typeof member !== 'object') return null
+  if (typeof member.id !== 'string' || member.id === '') return null
+  if (typeof member.name !== 'string' || member.name === '') return null
+  if (!TEAM_PHASES.includes(member.phase)) return null
+  return {
+    id: member.id,
+    name: member.name,
+    description: typeof member.description === 'string' ? member.description : '',
+    provider: typeof member.provider === 'string' ? member.provider : null,
+    context: member.context === 'fork' ? 'fork' : 'fresh',
+    phase: member.phase,
+    error: typeof member.error === 'string' && member.error !== '' ? member.error : null,
+  }
+}
+
+/**
+ * Read the durable Agent Teams roster out of one Lead session's event log.
+ *
+ * Later records replace earlier ones for the same member (`provisioning` then
+ * `active`, or `failed`), and a member name is permanent and never reused — so
+ * the last record per id IS the roster.
+ *
+ * @param {any[]} events
+ * @returns {Map<string, ReturnType<typeof parseTeamMember>>}
+ */
+export function teamMembersFromEvents(events) {
+  const members = new Map()
+  for (const event of events ?? []) {
+    if (event?.type !== 'team/member') continue
+    const member = parseTeamMember(event.data?.member)
+    if (member === null) continue
+    members.set(member.id, member)
+  }
+  return members
+}
+
+/**
  * The permission preset a /btw side question is put in.
  *
  * It is one of the profile's own presets (`sandbox: read-only`, `approval: ask`
@@ -191,12 +249,17 @@ const WRITE_TRANSPORT = () => 'synapse'
  * @param {number} [options.debounceMs]
  * @param {number} [options.scanIntervalMs]  re-list interval for other processes' sessions
  * @param {boolean} [options.includeSubagents]
- *   Subagent children are the harness's internal delegation sessions: DSH's own
- *   navigation filters them out of the session list, and the canvas groups by
- *   cwd, so showing them would fill the map with internal chatter.
+ *   Project EVERY delegated child session, team member or not. Off by default:
+ *   DSH's own navigation hides these, and the canvas would fill with internal
+ *   chatter. For the named agents of a Team, use `includeTeamMembers` instead.
+ * @param {boolean} [options.includeTeamMembers]
+ *   Project the Agent Teams members of each Lead — each is a real, named agent
+ *   with its own session and transcript — as `kind: 'team'` threads. On by
+ *   default: the canvas hangs them under the Lead's card as a compact strip
+ *   instead of drawing their turns as cards. Off means "no Team agents at all".
  * @param {object} [options.capabilities]     canvas-side capability overrides
  */
-export function createDshAdapter({ sessionController, sessionQuery, workspaceController = undefined, tools = undefined, agents = undefined, sessions = undefined, permissionPresets = undefined, btwPins = undefined, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, capabilities: overrides = {} }) {
+export function createDshAdapter({ sessionController, sessionQuery, workspaceController = undefined, tools = undefined, agents = undefined, sessions = undefined, permissionPresets = undefined, btwPins = undefined, on, dshHome = undefined, debounceMs = DEFAULT_DEBOUNCE_MS, scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS, includeSubagents = false, includeTeamMembers = true, capabilities: overrides = {} }) {
   if (typeof on !== 'function') throw new Error('createDshAdapter: on 必须是 cordis 的 ctx.on')
 
   /**
@@ -211,30 +274,152 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     return value
   }
 
-  async function listSessions() {
+  /**
+   * Durable Team rosters, keyed by Lead session id, with the moment each was read.
+   *
+   * Reading a Lead's whole log only to learn its roster is worth it exactly when
+   * the log moved: every replay of a Lead rebuilds the cache from events it
+   * already has, and a live Lead's `team/member` events update it in place. The
+   * read here exists for the cold Leads this process has not replayed yet.
+   */
+  const teamRosters = new Map()
+  /** Child session id -> roster member, across every Lead that names it. */
+  const teamMembers = new Map()
+
+  /** Replace one Lead's cached roster, keeping the child index consistent. */
+  function rememberTeamRoster(leadId, members) {
+    const previous = teamRosters.get(leadId)
+    if (previous !== undefined) {
+      for (const childId of previous.members.keys()) {
+        if (!members.has(childId)) teamMembers.delete(childId)
+      }
+    }
+    for (const [childId, member] of members) teamMembers.set(childId, member)
+    teamRosters.set(leadId, { members, readAt: Date.now() })
+  }
+
+  /**
+   * The roster member's live status.
+   *
+   * Provisioning and failed are durable facts, so they win. `active` only says
+   * the agent was created; whether it is working right now is process-local
+   * (`ctx.agents`), and a cold member is `inactive` by definition.
+   */
+  function teamMemberStatus(member) {
+    if (member.phase === 'failed') return 'failed'
+    if (member.phase === 'provisioning') return 'provisioning'
+    return agents?.get?.(member.id)?.status === 'running' ? 'running' : 'inactive'
+  }
+
+  /** What the store receives for one Team member thread. */
+  function teamMemberView(member) {
+    return {
+      role: 'teammate',
+      name: member.name,
+      description: member.description,
+      phase: member.phase,
+      status: teamMemberStatus(member),
+      ...(member.error === null ? {} : { error: member.error }),
+    }
+  }
+
+  /** Read one cold Lead's log for its roster. */
+  async function scanTeamRoster(leadId) {
+    // `projectionMode: 'none'` is enough: membership lives in the raw events and
+    // paying for the projections would make this a second full read of the log.
+    const observation = await sessionQuery.observeSession(leadId, { projectionMode: 'none' })
+    try {
+      rememberTeamRoster(leadId, teamMembersFromEvents(observation.events))
+    } finally {
+      observation[Symbol.dispose]()
+    }
+  }
+
+  /**
+   * Refresh the rosters of every Lead that has a delegated child in the corpus.
+   *
+   * Only a roster that is missing or cold-stale costs a read. A LIVE Lead is
+   * skipped: its roster arrives through `team/member` events and every replay.
+   */
+  async function refreshTeamRosters(items) {
+    if (includeTeamMembers !== true) return
+    const rows = new Map()
+    const parents = new Set()
+    for (const item of items) {
+      if (typeof item?.sessionId !== 'string') continue
+      rows.set(item.sessionId, item)
+      if (item.origin !== 'subagent') continue
+      if (typeof item.parentSessionId === 'string' && item.parentSessionId !== '') parents.add(item.parentSessionId)
+    }
+    for (const leadId of parents) {
+      const cached = teamRosters.get(leadId)
+      if (cached !== undefined) {
+        if (sessions?.get?.(leadId) !== undefined) continue
+        const row = rows.get(leadId)
+        if (row === undefined) continue
+        if (typeof row.updatedAt === 'number' && row.updatedAt <= cached.readAt) continue
+      } else if (!rows.has(leadId)) {
+        // A child whose Lead is gone cannot be linked to a card anyway.
+        continue
+      }
+      try {
+        await scanTeamRoster(leadId)
+      } catch (error) {
+        // One unreadable Lead must not take the whole canvas down; the rest of
+        // the corpus still projects.
+        process.stderr.write(`synapse: 读取 ${leadId} 的团队名单失败: ${error?.message ?? error}\n`)
+      }
+    }
+  }
+
+  /** Fold one live `team/member` event into the cache. */
+  function applyTeamEvent(session, event) {
+    if (includeTeamMembers !== true) return
+    if (event?.type !== 'team/member') return
+    if (session?.header?.origin === 'subagent') return
+    const cached = teamRosters.get(session.id)
+    // No cached roster yet: the next corpus pass reads the whole roster rather
+    // than building a partial one from this single event.
+    if (cached === undefined) return
+    const member = parseTeamMember(event.data?.member)
+    if (member === null) return
+    cached.members.set(member.id, member)
+    teamMembers.set(member.id, member)
+  }
+
+  /**
+   * The host's sessions the canvas should project: Leads first, then Team members.
+   *
+   * Order matters at startup: the store links a child to its parent thread by
+   * session id, so a Lead replayed after its children would only repair that
+   * link on a later pass. Leads first makes the first projection exact.
+   */
+  async function loadCorpus() {
     // `list()` is cold-safe: it never activates an agent, and it carries the
     // projection values (title, contextPressure) that the DSH sidebar shows.
     const { items } = await sessionController.list({}, new AbortController().signal)
-    const sessions = []
+    await refreshTeamRosters(items)
+    const leads = []
+    const children = []
     for (const item of items) {
-      if (includeSubagents !== true && item.origin === 'subagent') continue
-      sessions.push({
-        id: item.sessionId,
-        cwd: typeof item.cwd === 'string' && item.cwd.trim() !== '' ? item.cwd : null,
-        title: titleOf(item),
-        // DSH addresses sessions by id, so the id IS the identity the store uses
-        // to pair a child with its parent (pi uses the file path for this).
-        filePath: item.sessionId,
-        parentSessionFile: typeof item.parentSessionId === 'string' ? item.parentSessionId : null,
-        // The core does not consume this yet (the canvas's live indicator comes
-        // over the host bridge); it is reported as the host knows it.
-        running: item.running === true,
-        blank: item.blank === true,
-        modified: new Date(item.updatedAt).toISOString(),
-        mtimeMs: item.updatedAt,
-      })
+      const member = includeTeamMembers === true ? teamMembers.get(item.sessionId) : undefined
+      const teamMember = member === undefined ? undefined : teamMemberView(member)
+      if (item.origin === 'subagent') {
+        // Delegated children are the harness's internal sessions. A Team member
+        // is not internal chatter: it is a named agent with its own transcript.
+        // Anything else only shows when the user explicitly asked for all of
+        // them (`includeSubagents`).
+        if (includeSubagents !== true && member === undefined) continue
+        children.push(hostSessionOfSummary(item, teamMember))
+        continue
+      }
+      leads.push(hostSessionOfSummary(item, teamMember))
     }
-    return sessions
+    return { items, sessions: [...leads, ...children] }
+  }
+
+  async function listSessions() {
+    return (await loadCorpus()).sessions
   }
 
   async function readHistory(session) {
@@ -246,7 +431,18 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
         inheritedEventCount: observation.inheritedEventCount,
         contextPressure: observation.projections?.values?.contextPressure ?? null,
       })
-      return { ...projected, cwd: projected.cwd ?? session.cwd }
+      // A Lead's replay already has the whole log in hand, so its roster is
+      // rebuilt here for free and needs no separate read. Doing it on every
+      // replay also keeps the cache exact through a burst of team events.
+      if (includeTeamMembers === true && session.origin !== 'subagent') {
+        rememberTeamRoster(session.id, teamMembersFromEvents(observation.events))
+      }
+      const member = includeTeamMembers === true ? teamMembers.get(session.id) : undefined
+      return {
+        ...projected,
+        cwd: projected.cwd ?? session.cwd,
+        teamMember: member === undefined ? null : teamMemberView(member),
+      }
     } finally {
       observation[Symbol.dispose]()
     }
@@ -256,7 +452,7 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     /** Trailing per-session timers, so a burst of events costs one re-read. */
     const timers = new Map()
     const latest = new Map()
-    /** Last activity timestamp seen per session, for the out-of-process scan. */
+    /** Last activity AND running bit seen per session, for the out-of-process scan. */
     const seen = new Map()
     let seeded = false
 
@@ -298,7 +494,9 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
 
     const schedule = session => {
       if (session === null || typeof session?.id !== 'string') return
-      if (includeSubagents !== true && session.header?.origin === 'subagent') return
+      const member = includeTeamMembers === true ? teamMembers.get(session.id) : undefined
+      if (session.header?.origin === 'subagent' && includeSubagents !== true && member === undefined) return
+      const teamMember = member === undefined ? undefined : teamMemberView(member)
       latest.set(session.id, session)
       if (timers.has(session.id)) return
       timers.set(session.id, setTimeout(() => {
@@ -307,7 +505,7 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
         latest.delete(session.id)
         if (current === undefined) return
         try {
-          onChange(hostSessionOf(current))
+          onChange(hostSessionOf(current, teamMember))
         } catch (error) {
           process.stderr.write(`synapse: 投影会话 ${current.id} 失败: ${error?.message ?? error}\n`)
         }
@@ -323,26 +521,34 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
      * change events, and `chokidar` is nowhere in the session stack). The pi
      * adapter needs the same fallback for the same reason: the canvas is not
      * the only writer of the thing it reads. Only rows whose activity timestamp
-     * MOVED are re-projected, so a quiet corpus costs one listing per interval
-     * and nothing else.
+     * MOVED (or, for a delegated child, whose running bit flipped) are
+     * re-projected, so a quiet corpus costs one listing per interval and
+     * nothing else.
      */
     const scan = async () => {
-      let items
+      let corpus
       try {
-        ({ items } = await sessionController.list({}, new AbortController().signal))
+        corpus = await loadCorpus()
       } catch (error) {
         process.stderr.write(`synapse: 重新列出会话失败: ${error?.message ?? error}\n`)
         return
       }
-      for (const item of items) {
+      for (const item of corpus.items) {
+        const member = includeTeamMembers === true ? teamMembers.get(item.sessionId) : undefined
+        if (item.origin === 'subagent' && includeSubagents !== true && member === undefined) continue
         const previous = seen.get(item.sessionId)
-        seen.set(item.sessionId, item.updatedAt)
+        seen.set(item.sessionId, { updatedAt: item.updatedAt, running: item.running === true })
         // The first pass only records what is there: the engine has already
         // replayed every session before it subscribed.
-        if (!seeded || previous === item.updatedAt) continue
-        if (includeSubagents !== true && item.origin === 'subagent') continue
+        if (!seeded) continue
+        // A Team chip's "running" bit is process-local and does NOT move the
+        // session's activity stamp when it flips back to idle, so a status-only
+        // change must still re-project — otherwise the chip says "working"
+        // until that agent happens to write again.
+        const statusChanged = item.origin === 'subagent' && previous !== undefined && previous.running !== (item.running === true)
+        if (previous !== undefined && previous.updatedAt === item.updatedAt && !statusChanged) continue
         try {
-          onChange(hostSessionOfSummary(item))
+          onChange(hostSessionOfSummary(item, member === undefined ? undefined : teamMemberView(member)))
         } catch (error) {
           process.stderr.write(`synapse: 投影会话 ${item.sessionId} 失败: ${error?.message ?? error}\n`)
         }
@@ -352,7 +558,12 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
 
     const disposers = [
       on('session/created', session => { schedule(session) }),
-      on('session/event', session => { schedule(session) }),
+      // The event itself matters for Teams: `team/member` is how a Lead's roster
+      // grows or changes phase, and folding it in place saves a log read.
+      on('session/event', (session, event) => {
+        applyTeamEvent(session, event)
+        schedule(session)
+      }),
       on('agent/created', payload => { pinBtw(payload?.agent) }),
     ]
     // Agents that are ALREADY live when this subscriber attaches (a plugin
@@ -576,7 +787,13 @@ export function createDshAdapter({ sessionController, sessionQuery, workspaceCon
     // the restriction a /btw makes is an effect on one agent scope, not a
     // property of the session, and pretending otherwise would be a lie in the
     // capability table.
-    capabilities: () => capabilities({ openSession: true, createSession: true, sendMessage: true, forkSession: true, renameSession: true, archiveSession: true, btw: true, ...overrides }),
+    // `intercom` is true because DSH is the host class whose web server is the
+    // one `dsh-intercom` registers its panel routes on (`/intercom/*`, same
+    // origin as this canvas). Whether the plugin is actually installed is NOT
+    // knowable from here — it exposes no service and no route table — so the
+    // canvas probes the roster once and hides the action when that fails.
+    // pi-web cannot serve those routes at all, which is why the default is off.
+    capabilities: () => capabilities({ openSession: true, createSession: true, sendMessage: true, forkSession: true, renameSession: true, archiveSession: true, btw: true, intercom: true, ...overrides }),
   }
 }
 
@@ -593,7 +810,7 @@ function titleOf(item) {
  * entry carries the first, and the second only ever prunes a session the user
  * never wrote into (which a session that is emitting events is not).
  */
-function hostSessionOf(session) {
+function hostSessionOf(session, teamMember = undefined) {
   const header = session.header ?? {}
   return {
     id: session.id,
@@ -603,6 +820,8 @@ function hostSessionOf(session) {
     parentSessionFile: typeof header.parentSession === 'string' ? header.parentSession : null,
     running: true,
     blank: false,
+    ...(header.origin === 'subagent' ? { origin: 'subagent' } : {}),
+    ...(teamMember === undefined ? {} : { teamMember }),
   }
 }
 
@@ -613,7 +832,7 @@ function hostSessionOf(session) {
  * a header from — the row is the whole evidence, which is also why it carries
  * the title and blank state (they come free from the list's projections).
  */
-function hostSessionOfSummary(item) {
+function hostSessionOfSummary(item, teamMember = undefined) {
   return {
     id: item.sessionId,
     cwd: typeof item.cwd === 'string' && item.cwd.trim() !== '' ? item.cwd : null,
@@ -624,5 +843,7 @@ function hostSessionOfSummary(item) {
     blank: item.blank === true,
     modified: new Date(item.updatedAt).toISOString(),
     mtimeMs: item.updatedAt,
+    ...(item.origin === 'subagent' ? { origin: 'subagent' } : {}),
+    ...(teamMember === undefined ? {} : { teamMember }),
   }
 }

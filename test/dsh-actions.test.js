@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BTW_DEFAULT_TOOLS, btwToolPin, createDshAdapter, forkBoundary, promptContent } from '../src/adapters/dsh.js'
-import { writeTransport } from '../src/adapters/contract.js'
+import { BTW_DEFAULT_TOOLS, btwToolPin, createDshAdapter, forkBoundary, promptContent, teamMembersFromEvents } from '../src/adapters/dsh.js'
+import { writeTransport, capabilities } from '../src/adapters/contract.js'
 
 /**
  * The canvas holds images as base64 with no data-URL prefix
@@ -90,6 +90,19 @@ test('the DSH canvas writes through our routes, not the host api', () => {
   assert.equal(caps.setTools, false)
   assert.equal(caps.sendMessage, true)
   assert.equal(caps.createSession, true)
+  // `intercom` is on because DSH is the host class whose web server also serves
+  // dsh-intercom's panel routes (`/intercom/*`) on the canvas's own origin. The
+  // table deliberately does NOT claim the plugin is installed — it exposes no
+  // service to ask — so the canvas probes the roster once and hides the action
+  // when that probe fails.
+  assert.equal(caps.intercom, true)
+})
+
+test('a host that serves no intercom routes reports the capability off', () => {
+  // pi-web proxies everything outside /synapse to its own upstream, so
+  // /intercom/* can only 404 there; the default has to be off, and it is the
+  // default that keeps the button out of the canvas without a per-host check.
+  assert.equal(capabilities().intercom, false)
 })
 
 test('an adapter that says nothing writes through the host api', () => {
@@ -100,4 +113,29 @@ test('an adapter that says nothing writes through the host api', () => {
 
 test('an unknown transport is refused rather than guessed', () => {
   assert.throws(() => writeTransport({ id: 'x', writeTransport: () => 'ftp' }), /未知的传输方式/)
+})
+
+test('the durable Team roster comes from the Lead log, last record wins', () => {
+  // `team/member` is an Agent Teams plugin event (not part of the core session
+  // vocabulary) but it is in the Lead's log, so the canvas reads the roster from
+  // there instead of asking a live service that dies with the process.
+  const member = (id, name, phase, extra = {}) => ({
+    type: 'team/member',
+    seq: 1,
+    data: { version: 2, teamId: 'session-lead', member: { id, name, description: `${name} 的任务`, provider: 'spawn', context: 'fresh', phase, ...extra } },
+  })
+  const members = teamMembersFromEvents([
+    member('child-canvas', 'canvas-ui', 'provisioning'),
+    member('child-canvas', 'canvas-ui', 'active'),
+    member('child-docs', 'docs', 'failed', { error: '启动失败原因', context: 'fork' }),
+    // Non-Team events and malformed rows are ignored without hiding the roster.
+    { type: 'user/message', seq: 4, data: {} },
+    { type: 'team/member', seq: 5, data: { member: { id: '', name: 'bad', phase: 'active' } } },
+    { type: 'team/member', seq: 6, data: { member: { id: 'child-x', name: 'x', phase: 'weird' } } },
+  ])
+  assert.deepEqual([...members.keys()], ['child-canvas', 'child-docs'])
+  assert.equal(members.get('child-canvas').phase, 'active')
+  assert.equal(members.get('child-docs').phase, 'failed')
+  assert.equal(members.get('child-docs').context, 'fork')
+  assert.equal(members.get('child-docs').error, '启动失败原因')
 })

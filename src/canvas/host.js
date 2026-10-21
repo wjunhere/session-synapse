@@ -239,3 +239,86 @@ export async function hostBtwSession(sessionId, tools, entryId = undefined) {
   }
   return forked
 }
+
+// ---------------------------------------------------------------------------
+// session-to-session calls (dsh-intercom's panel routes)
+// ---------------------------------------------------------------------------
+
+/**
+ * The intercom panel routes are reached exactly like `/synapse/api/*`: a plain
+ * relative fetch from the page, because they are served by the SAME web server
+ * that serves this canvas. Two consequences the callers depend on:
+ *
+ *   - It must be same-origin. The routes send no CORS header, so a page on any
+ *     other origin cannot read the answer — which is also why pi-web (a
+ *     different origin, and no intercom at all) can never use them.
+ *   - The transport gate is explicit and never falls back. `dsh-intercom` is an
+ *     independent package; guessing at a route that is not there would turn a
+ *     missing plugin into a broken button.
+ */
+function requireIntercomTransport() {
+  if (writeTransport !== 'synapse') throw new Error('当前宿主没有会话互通通道')
+}
+
+/** A session id that must be present; `what` names it in the error. */
+function requireTarget(id, what) {
+  if (typeof id !== 'string' || id === '') throw new Error(`${what}不能为空`)
+  return id
+}
+
+/**
+ * One call to the panel routes.
+ *
+ * Deliberately NOT `api()`: that helper reports `body.error ?? '请求失败'`, and a
+ * refused send answers 502 with `{ delivered: false, reason }` — the reason IS
+ * the message the user needs ("Session not found"), so it must not be replaced
+ * by a generic one.
+ */
+async function intercomRequest(path, options = {}) {
+  requireIntercomTransport()
+  const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers ?? {}) } })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error ?? body.reason ?? '会话互通请求失败')
+  return body
+}
+
+/**
+ * The live intercom roster: `{ enabled, transport, sessions, senders }`.
+ *
+ * This doubles as the availability probe. "The plugin is not installed" is a
+ * 404 here, which is an ordinary answer rather than a failure to report, so the
+ * probe caller is allowed to swallow the throw — see `app.js`, where a failed
+ * probe only means the call button is not rendered.
+ */
+export async function intercomRoster() {
+  return intercomRequest('/intercom/roster')
+}
+
+/**
+ * Send one message from a local session to another session.
+ *
+ * `from` must be a session THIS harness process hosts (the roster's `senders`);
+ * the panel rejects anything else with a 400. The receiving session treats the
+ * message as a real turn, which is why the canvas asks for confirmation first.
+ */
+export async function intercomSend(from, to, message) {
+  requireTarget(from, '呼叫方')
+  requireTarget(to, '目标会话')
+  if (typeof message !== 'string' || message.trim() === '') throw new Error('呼叫内容不能为空')
+  await intercomRequest('/intercom/send', { method: 'POST', body: JSON.stringify({ from, to, message }) })
+}
+
+/**
+ * Set a session's intercom alias.
+ *
+ * Called after a rename so the caller shows up as a name in the OTHER session's
+ * transcript instead of an id prefix. `dsh-intercom` publishes this alias from
+ * the process that hosts the session, so only a local session can be named; it
+ * also mirrors the alias onto the session title.
+ */
+export async function intercomName(sessionId, alias) {
+  requireTarget(sessionId, '会话')
+  const name = String(alias ?? '').trim()
+  if (name === '') throw new Error('呼叫方名字不能为空')
+  await intercomRequest('/intercom/name', { method: 'POST', body: JSON.stringify({ session: sessionId, alias: name }) })
+}

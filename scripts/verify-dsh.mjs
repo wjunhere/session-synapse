@@ -70,6 +70,16 @@ function runDsh(args, { timeoutMs = 180_000 } = {}) {
 runDsh(['rescue', '--from-default-profile', 'web', '--dump-config'])
 cpSync(credentials, join(HOME, '.credentials.yaml'))
 runDsh(['plugin', '--profile', 'rescue', 'add', `link:${ROOT}`])
+// The call feature talks to dsh-intercom, which is a SEPARATE package — the
+// suite has to install it too, or every intercom item would fail on a 404 that
+// looks like a bug in this repo. It defaults to a sibling checkout and can be
+// pointed elsewhere; a missing package stops the run here rather than degrading
+// into "the feature is broken".
+const intercomPath = process.env.DSH_INTERCOM_PATH ?? resolve(ROOT, '..', 'dsh-intercom')
+if (!existsSync(join(intercomPath, 'package.json'))) {
+  fatal(`找不到 dsh-intercom（找的是 ${intercomPath}）；把它克隆到本仓库旁边，或设 DSH_INTERCOM_PATH 指向它的目录`)
+}
+runDsh(['plugin', '--profile', 'rescue', 'add', `link:${intercomPath}`])
 
 const harness = spawn('dsh', ['rescue', '--no-open', '--port', String(PORT)], { env, shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
 let log = ''
@@ -158,6 +168,10 @@ const store = () => page.evaluate(async () => {
         calls: thread.messages.flatMap(message => (message.process ?? []).map(entry => entry.name)),
         ran: thread.messages.flatMap(message => (message.process ?? []).filter(entry => entry.error === null).map(entry => entry.name)),
         messages: thread.messages.map(message => `${message.kind}:${message.text}`),
+        // Who called, for a relayed intercom entry. The card's "open the calling
+        // session" affordance depends on this surviving into the stored message,
+        // long after the live roster row is gone.
+        callsFrom: thread.messages.filter(message => typeof message.from === 'string' && message.from !== '').map(message => message.from),
       })
     }
   }
@@ -298,8 +312,17 @@ try {
   check('地图打开时视口里就有卡片', chrome.visibleCards > 0, `可见 ${chrome.visibleCards} 张`)
 
   // D. 宿主文案：画布不该在 DSH 里自称 pi-web
-  const hostButton = await frame().evaluate(() => document.querySelector('.thread-card [data-action="open-host"]')?.textContent?.trim() ?? '')
-  check('卡片页脚按宿主命名（DSH）', hostButton.includes('DSH'), JSON.stringify(hostButton))
+  //
+  // footer 的按钮全部 icon-only，宿主名只活在 title / aria-label 里，所以这里读
+  // 属性而不是 textContent —— 顺带把「按钮上不该有文字」也钉住（一个带文字的
+  // footer 在 248px 卡片上会折成两行，实测过）。
+  const hostButton = await frame().evaluate(() => {
+    const button = document.querySelector('.thread-card [data-action="open-host"]')
+    return { title: button?.getAttribute('title') ?? '', label: button?.getAttribute('aria-label') ?? '' }
+  })
+  check('卡片页脚按宿主命名（DSH，走 title/aria-label）', hostButton.title.includes('DSH') && hostButton.label.includes('DSH'), JSON.stringify(hostButton))
+  const footerText = await frame().evaluate(() => [...document.querySelectorAll('.thread-card footer button')].map(node => (node.textContent ?? '').trim()).filter(text => text !== ''))
+  check('页脚按钮全部 icon-only（文字只走 title/aria-label）', footerText.length === 0, JSON.stringify(footerText))
 
   // D. 发消息（真模型）
   //
@@ -490,6 +513,119 @@ try {
     if (renamed !== undefined) break
   }
   check('改名写进了 DSH 的会话记录', renamed !== undefined, JSON.stringify(renamed?.sessionTitle ?? null))
+
+  // F2. 卡片间呼叫（dsh-intercom）
+  //
+  // 这条路整条都要在隔离 home 里验：画布 → 同源 fetch `/intercom/send` →
+  // dsh-intercom 的 broker → 对方会话的日志 → 投影 → 对方画布上的呼叫卡片。
+  // 绝不在真实会话上试：发一条就会让对方真的跑一轮（铁律 6 的同源纪律）。
+  // Scope the button to THIS session's card. The DOM only holds the cards the
+  // viewport mounted, and by now the workspace also has a branch and a /btw
+  // fork — a bare `.thread-card [data-action=…]` could pick one of those, and
+  // the call would then go out as THAT session, silently changing who speaks.
+  const createdThreadId = (await store()).find(thread => thread.sessionId === created?.sessionId)?.id ?? null
+  const CALL_BUTTON = createdThreadId === null ? '' : `.thread-card[data-thread="${createdThreadId}"] [data-action="open-intercom"]`
+  // Read the roster WITHOUT assuming it is JSON: when dsh-intercom is missing
+  // the route answers 404 with something that is not JSON, and a bare `.json()`
+  // would abort the whole suite instead of reporting the actual state.
+  const rosterNow = () => page.evaluate(async () => {
+    const response = await fetch('/intercom/roster')
+    const text = await response.text()
+    try {
+      return { status: response.status, roster: JSON.parse(text) }
+    } catch {
+      return { status: response.status, roster: null, body: text.slice(0, 80) }
+    }
+  })
+  let callThread = null
+  for (let attempt = 0; attempt < 20 && callThread === null && CALL_BUTTON !== ''; attempt++) {
+    callThread = await frame().evaluate(selector => document.querySelector(selector)?.dataset.thread ?? null, CALL_BUTTON)
+    if (callThread === null) await sleep(1_500)
+  }
+  check('卡片上有「呼叫」入口（画布拿到了 intercom 能力且面板可用）', callThread !== null, `${String(callThread)} thread=${String(createdThreadId)}`)
+
+  const rosterFirst = await rosterNow()
+  check('隔离实例里 /intercom/roster 可用（套件装了 dsh-intercom）', rosterFirst.status === 200 && rosterFirst.roster?.enabled === true, JSON.stringify(rosterFirst).slice(0, 120))
+  // 改名同步别名：F 刚把标题改成「画布改的标题」，roster 上的名字应当跟着走，
+  // 否则对方看到的是 `session-` 这种前缀（dsh-intercom 的注入抬头用 id 前 8 位）。
+  let alias = null
+  for (let attempt = 0; attempt < 12 && alias !== '画布改的标题'; attempt++) {
+    await sleep(1_000)
+    alias = (await rosterNow()).roster?.senders?.find(row => row.id === created?.sessionId)?.name ?? null
+  }
+  check('画布改名同步到了 intercom 别名', alias === '画布改的标题', JSON.stringify(alias))
+
+  // 第二个活会话：走我们自己的建会话路由（画布「新建会话」用的是同一条）。
+  const callCwd = await frame().evaluate(() => window.__synapse.state.workspace?.cwd ?? null)
+  const calledSession = await page.evaluate(async cwd => {
+    const made = await (await fetch('/synapse/api/host/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cwd }) })).json()
+    return made.sessionId
+  }, callCwd)
+  let callable = false
+  for (let attempt = 0; attempt < 20 && !callable; attempt++) {
+    await sleep(1_000)
+    callable = (await rosterNow()).roster?.senders?.some(row => row.id === calledSession) === true
+  }
+  check('第二个会话起来了、进了 intercom roster 的 senders', callable === true, String(calledSession))
+
+  if (callThread !== null && callable) {
+    await frame().click(CALL_BUTTON)
+    await frame().waitForSelector('.intercom-popover', { timeout: 15_000 })
+    const targets = await frame().evaluate(() => [...document.querySelectorAll('.intercom-popover [data-action="select-call-target"]')].map(node => node.dataset.session))
+    check('选择器列出另一个活会话、并排除自己', targets.includes(calledSession) && !targets.includes(created?.sessionId), JSON.stringify(targets))
+    await frame().click(`.intercom-popover [data-action="select-call-target"][data-session="${calledSession}"]`)
+    await frame().fill('.intercom-popover .intercom-note', '请回复 ok')
+    await frame().click('.intercom-popover [data-action="call-session"]')
+
+    // 对方会话里真的出现一条 relay：kind 是 call、正文带上这张卡片、from 是呼叫方。
+    let called = null
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await sleep(2_000)
+      called = (await store()).find(thread => thread.sessionId === calledSession && thread.messages.some(text => text.startsWith('call:')))
+      if (called !== undefined) break
+    }
+    check('呼叫真的落进了对方会话', called !== undefined, `sessionId=${called?.sessionId ?? '无'}`)
+    check('对方会话记下了呼叫方（呼叫卡片靠它跳回去）', called?.callsFrom.includes(created?.sessionId) === true, JSON.stringify(called?.callsFrom ?? null))
+    check('呼叫正文带上了这张卡片的内容', called?.messages.some(text => text.startsWith('call:') && text.includes('画布发来的第一条消息')) === true, JSON.stringify(called?.messages.find(text => text.startsWith('call:'))?.slice(0, 80) ?? null))
+
+    const trace = await frame().evaluate(() => document.querySelector('.card-call-trace')?.textContent?.trim() ?? null)
+    check('呼叫方卡片上留下「已呼叫」痕迹', typeof trace === 'string' && trace.includes('已呼叫'), JSON.stringify(trace))
+
+    // 切到被呼叫的会话：先等宿主真的切过去，再找「来自呼叫方」的那张卡。
+    //
+    // 不这样做会误判：呼叫一旦送达，对方的 agent 往往会用 intercom 回信，于是
+    // 呼叫方自己的画布上也会出现一张来自对方的呼叫卡片 —— 在还没切过去时按
+    // `.call-chip` 抓「第一张」，抓到的可能正是那一张（实测踩过：断言拿到的
+    // caller 是对方会话，而它其实是 A 画布上的回信卡片）。
+    await frame().evaluate(id => window.parent.postMessage({ source: 'synapse', type: 'synapse:open-session', sessionId: id }, window.location.origin), calledSession)
+    let onCalled = null
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await sleep(1_000)
+      onCalled = await frame().evaluate(() => window.__synapse.state.currentSession?.id ?? null)
+      if (onCalled === calledSession) break
+    }
+    check('画布跟着宿主切到被呼叫的会话', onCalled === calledSession, String(onCalled))
+    let callCard = null
+    for (let attempt = 0; attempt < 30 && callCard === null; attempt++) {
+      await sleep(1_500)
+      callCard = await frame().evaluate(callerId => {
+        for (const chip of document.querySelectorAll('.call-chip')) {
+          const card = chip.closest('.thread-card')
+          const opener = card?.querySelector('[data-action="open-caller"]')
+          if (opener?.dataset.session === callerId) {
+            return { title: card?.querySelector('.thread-title')?.textContent?.trim() ?? '', caller: opener.dataset.session }
+          }
+        }
+        return null
+      }, created?.sessionId)
+    }
+    check('被呼叫的画布上出现「呼叫」卡片', callCard !== null, JSON.stringify(callCard))
+    check('呼叫卡片能跳回呼叫方会话', callCard?.caller === created?.sessionId, JSON.stringify(callCard?.caller ?? null))
+
+    // 切回呼叫方：后面的归档/跟随项仍按原来的工作区走。
+    await frame().evaluate(id => window.parent.postMessage({ source: 'synapse', type: 'synapse:open-session', sessionId: id }, window.location.origin), created?.sessionId)
+    await sleep(2_000)
+  }
 
   // G. 归档：先取消归档，好让这次点击真的产生一次状态变化
   const archiveButton = await frame().$('.thread-card[data-thread] [data-action="host-archive"]')

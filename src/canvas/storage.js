@@ -16,6 +16,7 @@ export const MAX_QUICK_PHRASE_LENGTH = 16
 
 const CARD_POSITIONS_KEY = 'pi-synapse:card-positions:v3'
 const COLLAPSED_CARDS_KEY = 'pi-synapse:collapsed-cards:v1'
+const EXPANDED_TEAMS_KEY = 'pi-synapse:expanded-teams:v1'
 const QUICK_PHRASES_KEY = 'pi-synapse:quick-phrases:v1'
 const BRANCH_ANCHORS_KEY = 'pi-synapse:branch-anchors'
 const SETTINGS_KEY = 'pi-synapse:settings:v1'
@@ -71,6 +72,18 @@ export function loadCollapsedCards() {
 }
 
 /**
+ * Lead thread ids whose Team strip the user unfolded.
+ *
+ * A membership list rather than a boolean: the default is folded, and only the
+ * teams the user actually opened pay for the extra chips. Keyed by thread id
+ * (like collapsed cards), so a reload remembers it per Lead.
+ */
+export function loadExpandedTeams() {
+  const value = readJson(EXPANDED_TEAMS_KEY, [])
+  return Array.isArray(value) ? value.filter(item => typeof item === 'string') : []
+}
+
+/**
  * The saved quick phrases, or the defaults.
  *
  * A stored-but-empty list is honoured (`[]`), because clearing the chips is a
@@ -87,6 +100,7 @@ export function loadQuickPhrases() {
 
 export function persistCardPositions(entries) { writeJson(CARD_POSITIONS_KEY, [...entries]) }
 export function persistCollapsedCards(ids) { writeJson(COLLAPSED_CARDS_KEY, [...ids]) }
+export function persistExpandedTeams(ids) { writeJson(EXPANDED_TEAMS_KEY, [...ids]) }
 export function persistQuickPhrases(phrases) { writeJson(QUICK_PHRASES_KEY, phrases) }
 export function persistBranchAnchors(entries) { writeJson(BRANCH_ANCHORS_KEY, [...entries]) }
 

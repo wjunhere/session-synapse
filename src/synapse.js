@@ -109,6 +109,9 @@ export class Synapse {
           // Hosts that measure their own occupancy report it here; the store
           // uses it verbatim instead of running the pi estimator.
           contextUsage: history.contextUsage,
+          // A Team member's roster row. The history's copy wins: its status is
+          // process-local and fresher than the listing row the session came from.
+          teamMember: history.teamMember ?? merged.teamMember ?? null,
         },
         // Always a full replay: the inherited-prefix cut is resolved inside
         // `projectSession` from `inheritedEntryCount` itself.
@@ -376,5 +379,9 @@ function hostSessionRefs(sessions) {
     id: session.id,
     cwd: session.cwd,
     blank: session.blank === true,
+    // `syncSessions` may create a thread for a session it has not projected yet;
+    // carrying the Team row keeps that thread a `team` thread from its first
+    // write instead of a plain branch until the next replay.
+    teamMember: session.teamMember ?? null,
   }))
 }

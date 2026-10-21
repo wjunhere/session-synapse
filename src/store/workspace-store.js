@@ -5,6 +5,8 @@ import { contextUsage } from '../project/context-usage.js'
 
 const MAX_TITLE_LENGTH = 120
 const MAX_NOTE_LENGTH = 4_000
+/** A teammate's spawn description is shown in a tooltip; keep the data file small. */
+const MAX_TEAM_DESCRIPTION_LENGTH = 400
 // Projected message text cap: longer replies truncate with a marker pointing
 // at the detail view instead of silently cutting mid-sentence.
 export const MAX_PROJECTION_LENGTH = 8_000
@@ -187,6 +189,7 @@ export class WorkspaceStore {
           parentSessionFile: typeof item.parentSessionFile === 'string' ? item.parentSessionFile : null,
           title: typeof item.title === 'string' ? item.title : undefined,
           entries: [],
+          teamMember: item.teamMember ?? null,
         }
         const thread = this.projectionThread(workspace, session)
         if (typeof item.title === 'string' && item.title.trim() !== '') {
@@ -486,6 +489,7 @@ export class WorkspaceStore {
   }
 
   projectionThread(workspace, session) {
+    const teamMember = normalizeTeamMember(session.teamMember)
     let thread = workspace.threads.find(item => item.sessionId === session.id)
     if (thread !== undefined) {
       if (typeof session.title === 'string' && session.title.trim() !== '') {
@@ -499,6 +503,12 @@ export class WorkspaceStore {
       // cards. A string id, not a count — see the adapter contract.
       const seed = session.inheritedEntryCount
       if (typeof seed === 'string' && seed !== '') thread.sourceSeedLength = seed
+      // The roster's phase/status moves during a run; the thread's copy is what
+      // the Lead's chip strip reads, so it must be refreshed on every replay.
+      if (teamMember !== null) {
+        thread.kind = 'team'
+        thread.team = teamMember
+      }
       return thread
     }
     const parentSessionFile = typeof session.parentSessionFile === 'string' && session.parentSessionFile !== '' ? session.parentSessionFile : null
@@ -506,7 +516,7 @@ export class WorkspaceStore {
     const now = new Date().toISOString()
     thread = {
       id: randomUUID(),
-      title: typeof session.title === 'string' && session.title.trim() !== '' ? session.title.slice(0, MAX_TITLE_LENGTH) : (parent === undefined ? '会话' : `${parent.title} 分支`),
+      title: teamMember !== null ? teamMember.name : (typeof session.title === 'string' && session.title.trim() !== '' ? session.title.slice(0, MAX_TITLE_LENGTH) : (parent === undefined ? '会话' : `${parent.title} 分支`)),
       parentId: parent?.id ?? null,
       sourceParentSessionFile: parentSessionFile,
       sourceSeedLength: typeof session.inheritedEntryCount === 'string' && session.inheritedEntryCount !== '' ? session.inheritedEntryCount : null,
@@ -524,6 +534,13 @@ export class WorkspaceStore {
       updatedAt: now,
       messages: [],
       pendingProcess: [],
+    }
+    // A Team member is an agent, not a branch of the conversation: it gets no
+    // turn cards, only a chip under its Lead. `kind` is what tells the canvas
+    // that (the same field /btw side questions use).
+    if (teamMember !== null) {
+      thread.kind = 'team'
+      thread.team = teamMember
     }
     workspace.threads.push(thread)
     // A child may arrive before its parent during startup replay. Repair that
@@ -544,6 +561,11 @@ export class WorkspaceStore {
    *   - `tool-call`   → fold into the assistant message's process list
    *   - `tool-result` → pair with its call by `callId`
    *   - `user` / `assistant` / `todo` / `error` → a canvas message
+   *   - `call`        → a message another session addressed to this one (a
+   *                     dsh-intercom relay). It carries `from` (the caller's
+   *                     session id) and never seeds the thread title: the relay
+   *                     text opens with an injected `**From …**` header, which
+   *                     would make a nonsense title.
    */
   projectEntryInto(workspace, thread, entry) {
     const at = typeof entry.at === 'string' ? entry.at : new Date().toISOString()
@@ -589,6 +611,10 @@ export class WorkspaceStore {
       // markers for display, and the token accounting rides on the projection
       // entries (`usageChars`), which the estimator reads directly.
       ...(Number.isInteger(entry.imageCount) && entry.imageCount > 0 ? { imageCount: entry.imageCount } : {}),
+      // Who called, for the one kind that has a caller. Kept on the message so
+      // the card can still offer "open the calling session" after the live
+      // roster row is long gone.
+      ...(typeof entry.from === 'string' && entry.from !== '' ? { from: entry.from } : {}),
       ...(projection.kind === 'assistant' || projection.kind === 'error'
         ? { turn: entry.turn, step: entry.step, process: [] }
         : {}),
@@ -911,6 +937,33 @@ function positionOf(value) {
   const y = Number(value?.y)
   if (!Number.isFinite(x) || !Number.isFinite(y)) throw new InputError('position 必须包含有效坐标')
   return { x: Math.round(Math.max(-2000, Math.min(5000, x))), y: Math.round(Math.max(-2000, Math.min(5000, y))) }
+}
+
+const TEAM_PHASES = ['provisioning', 'active', 'failed']
+const TEAM_STATUSES = ['running', 'inactive', 'provisioning', 'failed']
+
+/**
+ * Normalize one Agent Teams roster row handed over by the adapter.
+ *
+ * `phase` is the durable fact; `status` adds the live running bit. Both are
+ * validated because the row is persisted with the canvas data and may come from
+ * a newer host: an unknown phase must fall back to the conservative reading
+ * instead of turning a working agent grey (or a failed one green).
+ */
+function normalizeTeamMember(value) {
+  if (value === null || typeof value !== 'object') return null
+  if (typeof value.name !== 'string' || value.name.trim() === '') return null
+  const phase = TEAM_PHASES.includes(value.phase) ? value.phase : 'active'
+  const fallback = phase === 'failed' ? 'failed' : phase === 'provisioning' ? 'provisioning' : 'inactive'
+  const status = TEAM_STATUSES.includes(value.status) ? value.status : fallback
+  return {
+    role: 'teammate',
+    name: value.name.trim().slice(0, MAX_TITLE_LENGTH),
+    description: typeof value.description === 'string' ? value.description.trim().slice(0, MAX_TEAM_DESCRIPTION_LENGTH) : '',
+    phase,
+    status,
+    ...(typeof value.error === 'string' && value.error.trim() !== '' ? { error: value.error.trim().slice(0, MAX_TEAM_DESCRIPTION_LENGTH) } : {}),
+  }
 }
 
 function requiredText(value, maxLength, field) {

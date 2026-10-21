@@ -39,7 +39,8 @@ export const inject = ['webServer', 'sessionController', 'sessionQuery', 'worksp
  * @param {string[]} [config.trustedHosts] extra authorities for the Host check
  * @param {boolean} [config.autoProjection] project the host's sessions (default true)
  * @param {string} [config.projectionWorkspaceTitle] workspace title for projected sessions
- * @param {boolean} [config.includeSubagents] put subagent sessions on the canvas too
+ * @param {boolean} [config.includeSubagents] put every delegated subagent session on the canvas too
+ * @param {boolean} [config.includeTeamMembers] put Agent Teams members on the canvas (default true)
  * @returns {Promise<() => Promise<void>>} disposer; a throw here fails the plugin
  *   load visibly instead of leaving a half-mounted surface behind.
  */
@@ -67,6 +68,10 @@ export async function apply(ctx, config) {
     on: (event, listener) => ctx.on(event, listener),
     dshHome: typeof config?.dshHome === 'string' ? config.dshHome : undefined,
     includeSubagents: config?.includeSubagents === true,
+    // Team members are the user-visible agents of Agent Teams; the canvas shows
+    // them as a chip strip under the Lead card. On by default — a profile can
+    // turn the whole surface off with `includeTeamMembers: false`.
+    includeTeamMembers: config?.includeTeamMembers !== false,
   })
   // The adapter owns the default location; the profile patch may override it.
   const dataFile = typeof config?.dataFile === 'string' && config.dataFile !== '' ? config.dataFile : adapter.defaultDataFile()

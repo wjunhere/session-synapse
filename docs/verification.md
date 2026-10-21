@@ -26,13 +26,17 @@ npm run check                             # tsc -p jsconfig.json，交付代码�
 ## 测试
 
 ```bash
-npm test                                  # 158 个单测（投影 28 + DSH 投影 9 + DSH 写操作映射 11 + 上下文 17 + 存储 35 + 画布设置 5 + 转写窗口 6 + markdown 15 + 实例锁 14 + pi-web 动作 15 + 会话对账 4）
+npm test                                  # 178 个单测（投影 28 + DSH 投影 11 + DSH 写操作映射 13 + 卡片间呼叫 12 + 上下文 17 + 存储 38 + 画布设置 5 + 转写窗口 6 + markdown 15 + 实例锁 14 + pi-web 动作 15 + 会话对账 4）
 npm run verify                            # 全套回归：起服务 → 26 个套件 → 清理 → 汇总表（需要 pi-web 在 30100）
-npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据），44 项
+npm run verify:dsh                        # DSH 适配：自己起隔离 harness（需要 dsh CLI + 凭据 + 旁边的 dsh-intercom），57 项
 npm run verify -- --skip-browser           # 只跑非浏览器套件
 ```
 
 **两个回归入口是分开的**，因为世界不同：`npm run verify` 的 26 个套件是 pi-web 的下游（画布靠反代与它同源），`npm run verify:dsh` 自己拉起一个 harness（画布是它的插件、同进程）。后者用临时 `DSH_HOME`，不碰真实会话，但**会真的调模型**（新建会话/发消息）——与 `verify-send.mjs` 对 pi-web 做的一样：投影与写操作链路没法用替身验。
+
+`npm run verify:dsh` 的前置不止 dsh CLI 与凭据：**还得有旁边的 `dsh-intercom`**。卡片间呼叫那一项要真发一条 intercom 消息，而隔离 home 里只装本仓库插件的话 `/intercom/roster` 回 404、按钮自然不出现（第一版就是这么假 FAIL 的）。套件默认找 `../dsh-intercom`，用 `DSH_INTERCOM_PATH` 指到别处；找不到就直接 fatal 报清楚，**不降级**。
+
+套件里的 **F2 段**验的是卡片间呼叫的整条路，全部在隔离 home 内：真点卡片上的呼叫按钮 → 选择器列出另一个活会话并排除自己 → 真发 `/intercom/send` → 对方会话的日志里出现 relay（`kind:call`、带呼叫方与正文）→ 切到对方的画布，看到那张「呼叫」卡片并能跳回呼叫方。**必须用隔离 home**：发一条就会让目标会话真的跑一轮（铁律 6 的同源纪律）。
 
 两个套件专门守详情视图（`docs/canvas-ui.md` §35）：`verify-detail-window.mjs` 守「只渲染最后 50 条 + 显示更早的 + 空闲时一次都不重写 DOM + 真鼠标点击不被重建吞掉」，`verify-markdown.mjs` 守 mermaid/LaTeX/表格/嵌套列表的渲染。后者靠**发一条带全部语法的 prompt** 造数据（prompt 本身就是会话里的用户消息），所以既不造假数据也不用等模型写出图来。
 
@@ -123,7 +127,7 @@ run 目录，失败保留并打印路径**。它不启停 pi-web（杀掉用户�
    ② 把三向决策本身提出来当纯函数测（`lockIsStale(holder, { staleAfterMs, mtimeMs, liveness })`，liveness
    改成入参），这样「已死 / 是我们 / 无法确认」三种答案在任何平台都能断言 —— 而这三种答案搞错的代价
    分别是「两个写者」与「永久锁死」，本来就该直接测。复现平台差异用 WSL：
-   `wsl.exe -e bash -lc "cd /mnt/b/vibe_program/session-synapse && node --test test/*.test.js"`。
+   `wsl.exe -e bash -lc "cd /mnt/b/work/proj && node --test test/*.test.js"`。
 
 ### 一个被顺便修正的测试前提
 

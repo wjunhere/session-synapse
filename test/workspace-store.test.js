@@ -59,6 +59,38 @@ test('projecting a session groups it by cwd and builds cards', async () => {
   })
 })
 
+test('an intercom relay becomes a card that keeps its caller and never names the thread', async () => {
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession({
+      id: 'sess-called',
+      cwd: 'B:\\proj\\demo',
+      filePath: 'B:\\proj\\demo\\b.jsonl',
+      parentSessionFile: null,
+      title: null,
+      inheritedEntryCount: 0,
+      entries: [
+        // What the DSH projector hands over for a dsh-intercom relay
+        // (`source.kind === 'intercom'`): kind `call`, plus the caller.
+        { id: 'e1', order: 0, kind: 'call', text: '**From session-** (B:\\proj\\other)\n\nTo reply, use the intercom tool…', from: 'session-1111', at: '2026-01-01T00:00:01.000Z' },
+        { id: 'e2', order: 1, kind: 'assistant', text: '收到', turn: '00000001', step: 0, at: '2026-01-01T00:00:02.000Z' },
+      ],
+    })
+    const list = await store.list()
+    const workspace = await store.get(list[0].id)
+    const thread = workspace.threads[0]
+    assert.deepEqual(thread.messages.map(m => m.kind), ['call', 'assistant'])
+    // The caller survives into the stored message: the live roster row is gone
+    // the moment that session stops, but "open the calling session" must not be.
+    assert.equal(thread.messages[0].from, 'session-1111')
+    // A relay's text opens with an injected `**From …**` header, so seeding the
+    // thread title from it would put that header on the card. Only a human
+    // prompt may name a thread; a call leaves the neutral fallback alone.
+    assert.equal(thread.sessionTitle, null)
+    assert.equal(thread.title, '会话')
+  })
+})
+
 test('repeated projection does not duplicate cards', async () => {
   await withStore(async dataFile => {
     const store = new WorkspaceStore(dataFile)
@@ -725,3 +757,64 @@ test('a hidden flag survives a reopen', async () => {
     assert.equal((await reopened.get(workspaceId)).threads[0].hidden, true)
   })
 })
+
+test('a Team member projects as a team thread under its Lead, transcript included', async () => {
+  // A teammate is a real session and a named agent at once: the store keeps its
+  // transcript (the chip opens it) while `kind: 'team'` keeps its turns off the
+  // map, and the roster row carries what the Lead's chip strip renders.
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession({
+      id: 'lead-1', cwd: '/tmp/team', filePath: 'lead-1', parentSessionFile: null, title: 'Lead 会话', inheritedEntryCount: 0,
+      entries: [{ id: 'e1', order: 0, kind: 'user', text: '开工', at: '2026-01-01T00:00:01.000Z' }],
+    })
+    const member = { role: 'teammate', name: 'docs', description: '补文档', phase: 'active', status: 'running' }
+    const entries = [
+      { id: 'f1', order: 0, kind: 'user', text: '你的任务', at: '2026-01-01T00:00:02.000Z' },
+      { id: 'f2', order: 1, kind: 'assistant', text: '收到', turn: '00000001', step: 0, at: '2026-01-01T00:00:03.000Z' },
+    ]
+    await store.projectSession({
+      id: 'child-1', cwd: '/tmp/team', filePath: 'child-1', parentSessionFile: 'lead-1', title: '画布卡片调研',
+      inheritedEntryCount: 0, teamMember: member, entries,
+    })
+    const workspaceId = (await store.list())[0].id
+    const workspace = await store.get(workspaceId)
+    const lead = workspace.threads.find(thread => thread.sessionId === 'lead-1')
+    const child = workspace.threads.find(thread => thread.sessionId === 'child-1')
+    assert.equal(child.kind, 'team')
+    assert.equal(child.team.name, 'docs')
+    assert.equal(child.team.description, '补文档')
+    assert.equal(child.team.status, 'running')
+    // The host's own auto title must NOT become the chip's name: the roster row
+    // is the identity the user saw when the agent was spawned.
+    assert.equal(child.title, 'docs')
+    assert.equal(child.parentId, lead.id)
+    assert.deepEqual(child.messages.map(message => message.kind), ['user', 'assistant'])
+
+    // A later replay refreshes the live half of the row; the strip reads it from
+    // the thread, so it has to land in the same place every time.
+    await store.projectSession({
+      id: 'child-1', cwd: '/tmp/team', filePath: 'child-1', parentSessionFile: 'lead-1', title: '画布卡片调研',
+      inheritedEntryCount: 0, teamMember: { ...member, phase: 'failed', status: 'failed', error: '启动失败' }, entries,
+    })
+    const replayed = (await store.get(workspaceId)).threads.find(thread => thread.sessionId === 'child-1')
+    assert.equal(replayed.team.status, 'failed')
+    assert.equal(replayed.team.error, '启动失败')
+    // Re-projection must not duplicate the transcript either.
+    assert.equal(replayed.messages.length, 2)
+  })
+})
+
+test('a team row with an unknown status falls back to what the phase means', async () => {
+  await withStore(async dataFile => {
+    const store = new WorkspaceStore(dataFile)
+    await store.projectSession({
+      id: 'child-2', cwd: '/tmp/team', filePath: 'child-2', parentSessionFile: null, title: null, inheritedEntryCount: 0,
+      teamMember: { name: 'probe', description: '', phase: 'provisioning', status: 'wat' },
+      entries: [{ id: 'g1', order: 0, kind: 'user', text: 'hi', at: '2026-01-01T00:00:01.000Z' }],
+    })
+    const workspace = await store.get((await store.list())[0].id)
+    assert.equal(workspace.threads[0].team.status, 'provisioning')
+  })
+})
+

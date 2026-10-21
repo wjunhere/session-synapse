@@ -1,0 +1,1959 @@
+[
+ {
+  "type": "session",
+  "version": 4,
+  "id": "session-8017d19d-3c84-4fe1-af46-1321db54c79e",
+  "createdAt": 1792489866851,
+  "cwd": "/probe/workspace",
+  "isSeeded": false,
+  "delegationDepth": 0,
+  "agentPreset": "standard"
+ },
+ {
+  "type": "permission/preset",
+  "seq": 0,
+  "time": 1792489866853,
+  "data": {
+   "preset": "workspace-write"
+  }
+ },
+ {
+  "type": "sandbox/mode",
+  "seq": 1,
+  "time": 1792489866853,
+  "data": {
+   "mode": "workspace-write"
+  }
+ },
+ {
+  "type": "approval/policy",
+  "seq": 2,
+  "time": 1792489866853,
+  "data": {
+   "policy": "ask"
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 3,
+  "time": 1792489877077,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "inserted": [
+    {
+     "content": [
+      {
+       "type": "text",
+       "text": "**From session-** (/probe/workspace)\n\nTo reply, use the intercom tool: intercom({ action: \"send\", to: \"session-4ae75a79-6714-4baf-a00e-ff504debf914\", message: \"...\" })\n\nfixture-relay-1: 这是隔离实例会话 A 发给会话 B 的跨会话呼叫。收到请只回复：ok"
+      }
+     ],
+     "source": {
+      "kind": "intercom",
+      "form": "relay",
+      "senderSessionId": "session-4ae75a79-6714-4baf-a00e-ff504debf914",
+      "messageId": "c696e9f9-5361-4805-b873-9f8c49d8c913"
+     },
+     "role": "user",
+     "id": "bc20f4e0-708e-4802-95df-9cf5ac02861d"
+    }
+   ]
+  }
+ },
+ {
+  "type": "turn/start",
+  "seq": 4,
+  "time": 1792489877078,
+  "data": {
+   "turn": 1
+  }
+ },
+ {
+  "type": "agent/inbox/spliced",
+  "seq": 5,
+  "time": 1792489877080,
+  "data": {
+   "target": "next-turn",
+   "start": 0,
+   "removedCount": 1,
+   "inserted": []
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 6,
+  "time": 1792489877219,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "user/message",
+  "seq": 8,
+  "time": 1792489877222,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "**From session-** (/probe/workspace)\n\nTo reply, use the intercom tool: intercom({ action: \"send\", to: \"session-4ae75a79-6714-4baf-a00e-ff504debf914\", message: \"...\" })\n\nfixture-relay-1: 这是隔离实例会话 A 发给会话 B 的跨会话呼叫。收到请只回复：ok"
+    }
+   ],
+   "source": {
+    "kind": "intercom",
+    "form": "relay",
+    "senderSessionId": "session-4ae75a79-6714-4baf-a00e-ff504debf914",
+    "messageId": "c696e9f9-5361-4805-b873-9f8c49d8c913"
+   },
+   "role": "user",
+   "id": "bc20f4e0-708e-4802-95df-9cf5ac02861d"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "user/message",
+  "seq": 9,
+  "time": 1792489877223,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent working directory: \"/probe/workspace\".\n\nCurrent DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/probe/workspace\". Some platform temporary areas may also be writable.\n\nApproval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.\n\nCurrent DeepSeek Harness implementation checkout: \"/probe/harness\\\\\".\n\nCurrent DeepSeek Harness Web GUI URL: \"http://127.0.0.1:30170\"."
+    }
+   ],
+   "source": {
+    "kind": "runtime-context",
+    "form": "snapshot",
+    "sections": [
+     {
+      "name": "working-directory:current",
+      "text": "Current working directory: \"/probe/workspace\"."
+     },
+     {
+      "name": "sandbox:policy",
+      "text": "Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: \"/probe/workspace\". Some platform temporary areas may also be writable."
+     },
+     {
+      "name": "approval:policy",
+      "text": "Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed."
+     },
+     {
+      "name": "harness:source",
+      "text": "Current DeepSeek Harness implementation checkout: \"/probe/harness\\\\\"."
+     },
+     {
+      "name": "app:web-surface",
+      "text": "Current DeepSeek Harness Web GUI URL: \"http://127.0.0.1:30170\"."
+     }
+    ]
+   },
+   "role": "user",
+   "id": "83933d46-8ef2-4ae5-be59-85d7e23dcd15"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "user/message",
+  "seq": 10,
+  "time": 1792489877223,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "<system-reminder>\nA skill is a reusable set of task-specific instructions. The following skills are available in this session:\n\n<available_skills>\n- `agent-reach`: MUST USE when user wants to 调研/research/搜索/search/查/找/look up anything on the internet — e.g. 全网调研 X / 帮我调研一下 X / 查一下 X / 搜搜 X / 看看大家怎么评价 X / X 上有什么讨论 / research this topic。 Also MUST USE when user mentions any platform or shares any URL/链接: 小红书/xiaohongshu/xhs, Twitter/推特/X, B站/bilibili, Reddit, Facebook, Instagram, V2EX, LinkedIn/领英/Boss直聘/招聘/求职/jobs, YouTube, GitHub code search, 小宇宙播客, 雪球/股票行情, RSS feeds, or any web URL. 16 platforms, multi-backend routing (OpenCLI / per-platform CLIs / AP...\n- `diagnose-windows-sandbox-acl`: Use on Windows for unexpected DSH sandbox access denials: workspace writes or listing fail, or an ordinarily readable path cannot be read. One bundled command inspects the path and every ancestor and repairs the ACL problems it proves in that same run. Expected confinement denials need no ACL repair.\n- `dsh-intercom`: Streamline session-to-session coordination with dsh-intercom. Send messages, delegate tasks, and coordinate work across multiple dsh sessions on the same machine. Use for planner-worker workflows, cross-session context sharing, and real-time collaboration between sessions.\n- `ego-browser`: When you need a browser, read this Skill by default. Use it to open and operate websites, fill forms, click buttons, take screenshots, extract page data, sign in, and perform other browser automation tasks, as well as web app testing, dogfooding, QA, bug investigation, and app-quality review. ego-browser (ego-lite) is a Chromium browser designed for both human users and AI Agents. Agents can use the user's logged-in websites and personal context to complete tasks and collaborate smoothly with...\n- `officecli`: Create, analyze, proofread, and modify Office documents (.docx, .xlsx, .pptx) using the officecli CLI tool. Use when the user wants to create, inspect, check formatting, find issues, add charts, or modify Office documents.\n- `reverse-engineer-anything`: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.\n</available_skills>\n\nIf the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.\nA user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.\n</system-reminder>"
+    }
+   ],
+   "source": {
+    "kind": "skill-catalog",
+    "form": "catalog",
+    "entries": [
+     {
+      "name": "agent-reach",
+      "description": "MUST USE when user wants to 调研/research/搜索/search/查/找/look up anything on the internet — e.g. 全网调研 X / 帮我调研一下 X / 查一下 X / 搜搜 X / 看看大家怎么评价 X / X 上有什么讨论 / research this topic。 Also MUST USE when user mentions any platform or shares any URL/链接: 小红书/xiaohongshu/xhs, Twitter/推特/X, B站/bilibili, Reddit, Facebook, Instagram, V2EX, LinkedIn/领英/Boss直聘/招聘/求职/jobs, YouTube, GitHub code search, 小宇宙播客, 雪球/股票行情, RSS feeds, or any web URL. 16 platforms, multi-backend routing (OpenCLI / per-platform CLIs / AP..."
+     },
+     {
+      "name": "diagnose-windows-sandbox-acl",
+      "description": "Use on Windows for unexpected DSH sandbox access denials: workspace writes or listing fail, or an ordinarily readable path cannot be read. One bundled command inspects the path and every ancestor and repairs the ACL problems it proves in that same run. Expected confinement denials need no ACL repair."
+     },
+     {
+      "name": "dsh-intercom",
+      "description": "Streamline session-to-session coordination with dsh-intercom. Send messages, delegate tasks, and coordinate work across multiple dsh sessions on the same machine. Use for planner-worker workflows, cross-session context sharing, and real-time collaboration between sessions."
+     },
+     {
+      "name": "ego-browser",
+      "description": "When you need a browser, read this Skill by default. Use it to open and operate websites, fill forms, click buttons, take screenshots, extract page data, sign in, and perform other browser automation tasks, as well as web app testing, dogfooding, QA, bug investigation, and app-quality review. ego-browser (ego-lite) is a Chromium browser designed for both human users and AI Agents. Agents can use the user's logged-in websites and personal context to complete tasks and collaborate smoothly with..."
+     },
+     {
+      "name": "officecli",
+      "description": "Create, analyze, proofread, and modify Office documents (.docx, .xlsx, .pptx) using the officecli CLI tool. Use when the user wants to create, inspect, check formatting, find issues, add charts, or modify Office documents."
+     },
+     {
+      "name": "reverse-engineer-anything",
+      "description": "Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis."
+     }
+    ]
+   },
+   "role": "user",
+   "id": "d6fdf59b-48d2-4663-a3ee-7c37703cbf9f"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "user/message",
+  "seq": 11,
+  "time": 1792489877223,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "Time sampled while preparing turn 1, step 1: 2026-10-20T17:51:17+08:00[Asia/Shanghai]\nBrowser time zone for this request: unavailable. Ask the user to clarify otherwise-unqualified dates and times.\nElapsed since the preceding model-visible message: unavailable."
+    }
+   ],
+   "source": {
+    "kind": "time-context",
+    "form": "snapshot",
+    "sections": [
+     {
+      "name": "time-context",
+      "text": "Time sampled while preparing turn 1, step 1: 2026-10-20T17:51:17+08:00[Asia/Shanghai]\nBrowser time zone for this request: unavailable. Ask the user to clarify otherwise-unqualified dates and times.\nElapsed since the preceding model-visible message: unavailable."
+     }
+    ]
+   },
+   "role": "user",
+   "id": "a92b056b-4816-4f50-9a3c-5ff2707e52f3"
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "request/context",
+  "seq": 13,
+  "time": 1792489877227,
+  "data": {
+   "provider": "deepseek-official",
+   "model": "deepseek-flash",
+   "contextWindow": 1000000,
+   "systemPromptUpdate": "in-history"
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 14,
+  "time": 1792489877604,
+  "data": {
+   "sessionId": "session-8017d19d-3c84-4fe1-af46-1321db54c79e",
+   "sessionFormatVersion": 4,
+   "throughSeq": 13
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 15,
+  "time": 1792489879333,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "The user message says it's from another session, asking to reply only \"ok\". I should reply via intercom tool to session-4ae75a79-6714-4baf-a00e-ff504debf914 with message \"ok\".\n\nThis matches the dsh-intercom skill, but the task is trivial. The instruction says if task clearly matches a skill's description, call the skill tool. But this is simply replying with \"ok\". Hmm, the catalog says load applicable skills. I could load the skill but it might be unnecessary overhead. The guidance says \"If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions.\" Replying to intercom message clearly matches dsh-intercom. Let me load it quickly.\n\nActually, being pragmatic: the call is simple. But following instructions, let me load the skill then reply.\n\nI'll load skill and then send reply. They're dependent-ish (I should read skill first). Let me just do skill then send.\n\nActually I could do both in one block but skill first matters. Let me load skill."
+     },
+     {
+      "type": "tool-call",
+      "id": "call_00_58FzVwtnQHXsQVQh08GH1175",
+      "name": "skill",
+      "arguments": "{\"name\": \"dsh-intercom\"}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "84070aa3-7cb5-4c0f-b531-411fce4c174d"
+       },
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "7174bf03-7d1b-45b5-a642-144d1637e785"
+   },
+   "usage": {
+    "inputTokens": 1183,
+    "outputTokens": 281,
+    "cacheReadTokens": 9088,
+    "cacheWriteTokens": 0,
+    "totalTokens": 10552
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792489877616,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "reasoning-chunks",
+     "time0": 1792489878220,
+     "index": 0,
+     "dt": [
+      66,
+      18,
+      9,
+      14,
+      0,
+      0,
+      12,
+      13,
+      1,
+      0,
+      15,
+      12,
+      0,
+      14,
+      0,
+      0,
+      0,
+      11,
+      0,
+      0,
+      0,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      5,
+      0,
+      0,
+      0,
+      0,
+      13,
+      1,
+      0,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      56,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      11,
+      0,
+      0,
+      0,
+      19,
+      0,
+      17,
+      0,
+      0,
+      0,
+      5,
+      0,
+      19,
+      0,
+      0,
+      0,
+      9,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      16,
+      0,
+      0,
+      7,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      13,
+      0,
+      18,
+      0,
+      0,
+      19,
+      0,
+      0,
+      0,
+      0,
+      10,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10,
+      0,
+      0,
+      37,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      12,
+      40,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      16,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10,
+      1,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      0,
+      11,
+      1,
+      0,
+      0,
+      12,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      12,
+      0,
+      0,
+      0,
+      91,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      12,
+      9,
+      8,
+      13,
+      0,
+      16,
+      0,
+      0,
+      16,
+      1,
+      0,
+      10,
+      17,
+      0,
+      0,
+      1,
+      0,
+      12,
+      0,
+      0,
+      1,
+      0,
+      7,
+      0,
+      15,
+      14,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "texts": [
+      "The",
+      " user",
+      " message",
+      " says",
+      " it",
+      "'s",
+      " from",
+      " another",
+      " session",
+      ",",
+      " asking",
+      " to",
+      " reply",
+      " only",
+      " \"",
+      "ok",
+      "\".",
+      " I",
+      " should",
+      " reply",
+      " via",
+      " inter",
+      "com",
+      " tool",
+      " to",
+      " session",
+      "-",
+      "4",
+      "ae",
+      "75",
+      "a",
+      "79",
+      "-",
+      "671",
+      "4",
+      "-",
+      "4",
+      "b",
+      "af",
+      "-a",
+      "00",
+      "e",
+      "-",
+      "ff",
+      "504",
+      "de",
+      "bf",
+      "914",
+      " with",
+      " message",
+      " \"",
+      "ok",
+      "\".\n\n",
+      "This",
+      " matches",
+      " the",
+      " d",
+      "sh",
+      "-inter",
+      "com",
+      " skill",
+      ",",
+      " but",
+      " the",
+      " task",
+      " is",
+      " trivial",
+      ".",
+      " The",
+      " instruction",
+      " says",
+      " if",
+      " task",
+      " clearly",
+      " matches",
+      " a",
+      " skill",
+      "'s",
+      " description",
+      ",",
+      " call",
+      " the",
+      " skill",
+      " tool",
+      ".",
+      " But",
+      " this",
+      " is",
+      " simply",
+      " rep",
+      "lying",
+      " with",
+      " \"",
+      "ok",
+      "\".",
+      " H",
+      "mm",
+      ",",
+      " the",
+      " catalog",
+      " says",
+      " load",
+      " applicable",
+      " skills",
+      ".",
+      " I",
+      " could",
+      " load",
+      " the",
+      " skill",
+      " but",
+      " it",
+      " might",
+      " be",
+      " unnecessary",
+      " overhead",
+      ".",
+      " The",
+      " guidance",
+      " says",
+      " \"",
+      "If",
+      " the",
+      " user",
+      " names",
+      " a",
+      " skill",
+      ",",
+      " or",
+      " the",
+      " task",
+      " clearly",
+      " matches",
+      " a",
+      " skill",
+      "'s",
+      " description",
+      ",",
+      " call",
+      " the",
+      " `",
+      "skill",
+      "`",
+      " tool",
+      " with",
+      " the",
+      " exact",
+      " skill",
+      " name",
+      " before",
+      " taking",
+      " task",
+      " actions",
+      ".\"",
+      " Rep",
+      "lying",
+      " to",
+      " inter",
+      "com",
+      " message",
+      " clearly",
+      " matches",
+      " d",
+      "sh",
+      "-inter",
+      "com",
+      ".",
+      " Let",
+      " me",
+      " load",
+      " it",
+      " quickly",
+      ".\n\n",
+      "Actually",
+      ",",
+      " being",
+      " pragmatic",
+      ":",
+      " the",
+      " call",
+      " is",
+      " simple",
+      ".",
+      " But",
+      " following",
+      " instructions",
+      ",",
+      " let",
+      " me",
+      " load",
+      " the",
+      " skill",
+      " then",
+      " reply",
+      ".\n\n",
+      "I",
+      "'ll",
+      " load",
+      " skill",
+      " and",
+      " then",
+      " send",
+      " reply",
+      ".",
+      " They",
+      "'re",
+      " dependent",
+      "-ish",
+      " (",
+      "I",
+      " should",
+      " read",
+      " skill",
+      " first",
+      ").",
+      " Let",
+      " me",
+      " just",
+      " do",
+      " skill",
+      " then",
+      " send",
+      ".\n\n",
+      "Actually",
+      " I",
+      " could",
+      " do",
+      " both",
+      " in",
+      " one",
+      " block",
+      " but",
+      " skill",
+      " first",
+      " matters",
+      ".",
+      " Let",
+      " me",
+      " load",
+      " skill",
+      "."
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489879264,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": "The user message says it's from another session, asking to reply only \"ok\". I should reply via intercom tool to session-4ae75a79-6714-4baf-a00e-ff504debf914 with message \"ok\".\n\nThis matches the dsh-intercom skill, but the task is trivial. The instruction says if task clearly matches a skill's description, call the skill tool. But this is simply replying with \"ok\". Hmm, the catalog says load applicable skills. I could load the skill but it might be unnecessary overhead. The guidance says \"If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions.\" Replying to intercom message clearly matches dsh-intercom. Let me load it quickly.\n\nActually, being pragmatic: the call is simple. But following instructions, let me load the skill then reply.\n\nI'll load skill and then send reply. They're dependent-ish (I should read skill first). Let me just do skill then send.\n\nActually I could do both in one block but skill first matters. Let me load skill."
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489879264,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "tool-call"
+     }
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489879265,
+     "index": 1,
+     "dt": [],
+     "id": "call_00_58FzVwtnQHXsQVQh08GH1175",
+     "name": "skill",
+     "args": [
+      ""
+     ]
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489879265,
+     "index": 1,
+     "dt": [
+      0,
+      12,
+      1,
+      0,
+      0,
+      22,
+      0,
+      0,
+      0,
+      1,
+      3
+     ],
+     "id": "call_00_58FzVwtnQHXsQVQh08GH1175",
+     "args": [
+      "{",
+      "\"",
+      "name",
+      "\"",
+      ": ",
+      "\"",
+      "d",
+      "sh",
+      "-inter",
+      "com",
+      "\"",
+      "}"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489879321,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "tool-call",
+       "id": "call_00_58FzVwtnQHXsQVQh08GH1175",
+       "name": "skill",
+       "arguments": "{\"name\": \"dsh-intercom\"}"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489879322,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 1183,
+       "outputTokens": 281,
+       "cacheReadTokens": 9088,
+       "cacheWriteTokens": 0,
+       "totalTokens": 10552
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489879322,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "tool-calls"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "84070aa3-7cb5-4c0f-b531-411fce4c174d"
+        },
+        {
+         "type": "tool-call"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "tool/call",
+  "seq": 16,
+  "time": 1792489879336,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "callId": "call_00_58FzVwtnQHXsQVQh08GH1175",
+   "name": "skill",
+   "arguments": "{\"name\": \"dsh-intercom\"}"
+  }
+ },
+ {
+  "type": "tool/result",
+  "seq": 17,
+  "time": 1792489879351,
+  "data": {
+   "turn": 1,
+   "step": 1,
+   "message": {
+    "role": "tool",
+    "source": {
+     "kind": "tool",
+     "callId": "call_00_58FzVwtnQHXsQVQh08GH1175"
+    },
+    "toolCallId": "call_00_58FzVwtnQHXsQVQh08GH1175",
+    "content": [
+     {
+      "type": "text",
+      "text": "<skill_content name=\"dsh-intercom\">\n<skill_resources>\nBase directory for this skill: /probe/dsh-intercom\\skills\\dsh-intercom\nResolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.\n</skill_resources>\n\n<skill_instructions>\n# dsh Intercom Skill\n\nUse this skill when you need to coordinate work across multiple dsh sessions\nrunning on the same machine. dsh-intercom enables direct 1:1 messaging between\nsessions for delegation, context sharing, and collaborative workflows.\n\n## When to Use\n\n- **Task delegation**: Split work between a planner session and worker sessions\n- **Context handoffs**: Send findings from a research session to an execution session\n- **Clarification loops**: Worker asks questions, planner answers, work continues\n- **Multi-session workflows**: Coordinate between specialized sessions (frontend/backend, research/implementation)\n- **Cross-codebase peer messages**: Message an explicit live peer in another project directory\n\n## When NOT to Use\n\n- The task fits in one session — coordination overhead buys nothing.\n- You need a supervised subagent with a bounded task — prefer dsh's built-in\n  subagent tool; intercom is for independent peer sessions, not owned children.\n- The peer is on another machine — intercom is same-machine only.\n\n## Core Patterns\n\n### Pattern 1: Planner-Worker Delegation\n\nThe most common pattern. One session holds the big picture, others do hands-on work.\n\n**Setup** (in each session, via the tool):\n\n```typescript\nintercom({ action: \"name\", alias: \"planner\" }); // session 1\nintercom({ action: \"name\", alias: \"worker\" }); // session 2\n```\n\n**Planner delegates a task** (fire-and-forget):\n\n```typescript\nintercom({\n  action: \"send\",\n  to: \"worker\",\n  message:\n    \"Task-3: Add retry logic to API client. Key files: src/api/client.ts. Ask if anything's unclear.\",\n});\n```\n\n**Worker asks for clarification** (blocks until the answer arrives):\n\n```typescript\nintercom({\n  action: \"ask\",\n  to: \"planner\",\n  message: \"Should I use exponential backoff or fixed intervals?\",\n});\n// → Returns the planner's reply as the tool result\n```\n\n**Worker reports completion**:\n\n```typescript\nintercom({\n  action: \"ask\",\n  to: \"planner\",\n  message:\n    \"Task-3 complete. Added exponential backoff (100ms → 1600ms, max 5 retries). Ready for task-4?\",\n});\n```\n\n### Pattern 2: Quick Status Check\n\nBefore sending, verify who's connected:\n\n```typescript\nintercom({ action: \"list\" });\n// → Shows all connected sessions with names, cwd, models, and live status (`idle`, `thinking`, `tool:<name>`)\n```\n\n### Pattern 3: Reply Naturally\n\nWhen responding to an inbound ask, prefer `reply` instead of reconstructing raw IDs:\n\n```typescript\n// In the turn triggered by the ask:\nintercom({\n  action: \"reply\",\n  message: \"Use exponential backoff starting at 100ms.\",\n});\n\n// If replying later and there might be more than one pending ask:\nintercom({ action: \"pending\" });\nintercom({\n  action: \"reply\",\n  to: \"planner\",\n  message: \"Use exponential backoff starting at 100ms.\",\n});\n```\n\n`reply` preserves exact threading under the hood by sending the response with\nthe original `replyTo` value.\n\n### Pattern 4: Broadcast to Multiple Workers\n\nSend to multiple sessions in parallel (one tool call per worker):\n\n```typescript\nintercom({ action: \"send\", to: \"worker-1\", message: task });\nintercom({ action: \"send\", to: \"worker-2\", message: task });\nintercom({ action: \"send\", to: \"worker-3\", message: task });\n```\n\n### Pattern 5: Cross-Directory Peer Messages\n\nUse `to` alone to message any explicit live peer on the machine, even when it\nworks in another directory. Use `cwd` alone when there should be exactly one\nlive peer in that directory. Use `to` plus `cwd` when the directory is a\nsafety guard.\n\n```typescript\nintercom({\n  action: \"ask\",\n  cwd: \"/path/to/other-repo\",\n  to: \"workbench-agent\",\n  message: \"Which module owns workbench source slices?\",\n});\n```\n\n`list-cwd` shows only the sessions in a directory:\n\n```typescript\nintercom({ action: \"list-cwd\", cwd: \"/path/to/other-repo\" });\n```\n\n## Key Differences\n\n| Action     | Behavior                                                                             | Use When                                              |\n| ---------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------- |\n| `send`     | Fire-and-forget; infers the sole pending ask as its reply                            | You don't need a response                             |\n| `ask`      | Blocks until reply (10 min default, configurable with `DSH_INTERCOM_ASK_TIMEOUT_MS`) | You need an answer to continue                        |\n| `reply`    | Responds to the active or pending inbound ask                                        | You were asked something and need to answer naturally |\n| `pending`  | Lists unresolved inbound asks                                                        | You need to see who is waiting before replying        |\n| `list`     | Returns all sessions with live status                                                | You need to discover targets or choose an idle peer   |\n| `list-cwd` | Returns sessions in one working directory                                            | You only care about peers in a specific repo          |\n| `name`     | Gives this session an alias                                                          | Setup, so others can address you                      |\n| `cancel`   | Requests cancellation of a message you sent                                          | You sent something stale or wrong                     |\n| `status`   | Returns your connection state                                                        | Troubleshooting                                       |\n\n## Important Constraints\n\n### `ask` Limitations\n\n- **Connected targets only**: `ask` fails immediately when the target is not in\n  the live intercom roster. Use `list` before asking when liveness is\n  uncertain; use `send` for non-blocking mailbox delivery.\n- **Configurable timeout**: If no reply arrives before the shared ask timeout,\n  the ask fails. The default is 10 minutes; set `DSH_INTERCOM_ASK_TIMEOUT_MS`\n  to a positive millisecond value to change it.\n- **One at a time**: Cannot have multiple pending asks from the same session.\n- **Cannot self-target**: A session cannot ask itself.\n\n### `send` Behavior\n\n- **No timeout**: Message is delivered or fails immediately.\n- **Mailbox queueing**: `send` to a recently disconnected _named_ session\n  queues in the broker mailbox and is delivered when a session with the same\n  alias and working directory reconnects.\n- **Sole pending ask inference**: If the destination has exactly one pending\n  inbound ask, `send` attaches its `replyTo` and reports\n  `Reply sent to <target> (inferred from pending ask)`.\n- **Ambiguity stays unthreaded**: Zero or multiple matching asks leave the\n  send as an ordinary message.\n\n## Best Practices\n\n### Use `ask` for blocking workflows\n\nWhen the worker needs information to proceed:\n\n```typescript\n// GOOD: Worker blocks until planner responds\nintercom({\n  action: \"ask\",\n  to: \"planner\",\n  message:\n    \"API rate limit is 100/min. Should I implement client-side throttling or batching?\",\n});\n// → Continue with the answer...\n```\n\n### Use `send` for notifications\n\nWhen you just want to inform:\n\n```typescript\n// GOOD: Fire-and-forget notification\nintercom({\n  action: \"send\",\n  to: \"reviewer\",\n  message: \"PR #123 is ready for review. Key changes in auth.ts.\",\n});\n// → Continue immediately, don't wait\n```\n\n### Name sessions meaningfully\n\nUse the `name` action so others can target you easily:\n\n```typescript\nintercom({ action: \"name\", alias: \"api-worker\" });\n```\n\n### Long-running tasks: send + periodic asks\n\nFor tasks that might exceed the ask timeout, don't hold one `ask` open:\n\n```typescript\n// 1. Planner sends the full task\nintercom({\n  action: \"send\",\n  to: \"worker\",\n  message:\n    \"Implement user authentication. This will take 30+ minutes. Report at milestones.\",\n});\n\n// 2. Worker reports progress via send (no timeout)\nintercom({\n  action: \"send\",\n  to: \"planner\",\n  message: \"Milestone 1: Login form complete (10min)\",\n});\n\n// 3. Worker asks for a specific decision only when blocked\nintercom({\n  action: \"ask\",\n  to: \"planner\",\n  message: \"Should we use JWT or session cookies? Need decision to continue.\",\n});\n```\n\n## Error Handling\n\n### Common Errors and Solutions\n\n**\"Already waiting for a reply\"**\n\n```typescript\n// You can only have one pending ask at a time\n// Option 1: Use send instead\nintercom({ action: \"send\", to: \"planner\", message: \"...\" });\n// Option 2: Wait for the current ask to complete first\n```\n\n**\"intercom: cannot message the current session\"**\n\n```typescript\n// You cannot target yourself — double-check the target name with:\nintercom({ action: \"list\" });\n```\n\n**\"Session ... is not currently connected\"**\n\n```typescript\n// Blocking asks need a live target. Either list first:\nintercom({ action: \"list\" });\n// ...or use send for mailbox delivery to a named peer:\nintercom({ action: \"send\", to: \"worker\", message: \"...\" });\n```\n\n**Ask timeout**\n\n```typescript\n// Default: 10 minutes; override with DSH_INTERCOM_ASK_TIMEOUT_MS.\n// For longer tasks, use the send + periodic asks pattern above.\n```\n\n## Troubleshooting\n\n### Session not appearing in list\n\n1. Check intercom is enabled and which transport is active:\n   `intercom({ action: \"status\" })`\n2. Verify the target session runs dsh with dsh-intercom installed.\n3. Ensure both sessions are on the same machine (intercom is same-machine\n   only) and share the same `DSH_HOME` (broker discovery is keyed by\n   `$DSH_HOME/intercom`).\n\n### Message not delivered\n\n`send` to a live peer fails with a reason; to a recently disconnected named\npeer it queues in the mailbox. `ask` never queues — it fails immediately when\nthe target is not connected.\n\n### Connection lost\n\nSessions automatically reconnect if the broker restarts. If persistently\ndisconnected, run `intercom({ action: \"status\" })` and restart dsh if the\nbroker cannot be reached.\n</skill_instructions>\n</skill_content>"
+     }
+    ],
+    "isError": false,
+    "id": "9912ed16-bf8e-4f9b-b5a5-91c69c598267"
+   }
+  },
+  "sourceEventSeqs": [
+   16
+  ],
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 18,
+  "time": 1792489879352,
+  "data": {
+   "turn": 1,
+   "step": 1
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 19,
+  "time": 1792489879385,
+  "data": {
+   "turn": 1,
+   "step": 2
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 20,
+  "time": 1792489879711,
+  "data": {
+   "sessionId": "session-8017d19d-3c84-4fe1-af46-1321db54c79e",
+   "sessionFormatVersion": 4,
+   "throughSeq": 19
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 21,
+  "time": 1792489880698,
+  "data": {
+   "turn": 1,
+   "step": 2,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "The message came from an inbound ask presumably. Best to use `reply` if there's a pending ask. Let me check pending first? The instruction says to reply use send to that session id. But `reply` preserves threading. Let me check pending."
+     },
+     {
+      "type": "tool-call",
+      "id": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+      "name": "intercom",
+      "arguments": "{\"action\": \"pending\"}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "7b619a4d-59cb-492f-8026-4f7dc0e162d0"
+       },
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "e545029f-fac5-4bbe-a7a8-1365cfa40eca"
+   },
+   "usage": {
+    "inputTokens": 2430,
+    "outputTokens": 90,
+    "cacheReadTokens": 10496,
+    "cacheWriteTokens": 0,
+    "totalTokens": 13016
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792489879744,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "reasoning-chunks",
+     "time0": 1792489880344,
+     "index": 0,
+     "dt": [
+      30,
+      16,
+      11,
+      0,
+      0,
+      12,
+      0,
+      16,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      12,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      0,
+      13,
+      0,
+      1,
+      0,
+      0,
+      25,
+      6,
+      0,
+      11,
+      0,
+      0,
+      0,
+      0,
+      10,
+      13,
+      0,
+      0,
+      15,
+      11,
+      1,
+      14,
+      0,
+      0,
+      0
+     ],
+     "texts": [
+      "The",
+      " message",
+      " came",
+      " from",
+      " an",
+      " inbound",
+      " ask",
+      " presumably",
+      ".",
+      " Best",
+      " to",
+      " use",
+      " `",
+      "reply",
+      "`",
+      " if",
+      " there",
+      "'s",
+      " a",
+      " pending",
+      " ask",
+      ".",
+      " Let",
+      " me",
+      " check",
+      " pending",
+      " first",
+      "?",
+      " The",
+      " instruction",
+      " says",
+      " to",
+      " reply",
+      " use",
+      " send",
+      " to",
+      " that",
+      " session",
+      " id",
+      ".",
+      " But",
+      " `",
+      "reply",
+      "`",
+      " preserves",
+      " threading",
+      ".",
+      " Let",
+      " me",
+      " check",
+      " pending",
+      "."
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489880630,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": "The message came from an inbound ask presumably. Best to use `reply` if there's a pending ask. Let me check pending first? The instruction says to reply use send to that session id. But `reply` preserves threading. Let me check pending."
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489880631,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "tool-call"
+     }
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489880631,
+     "index": 1,
+     "dt": [],
+     "id": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+     "name": "intercom",
+     "args": [
+      ""
+     ]
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489880640,
+     "index": 1,
+     "dt": [
+      1,
+      0,
+      22,
+      0,
+      0,
+      0,
+      4,
+      0
+     ],
+     "id": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+     "args": [
+      "{",
+      "\"",
+      "action",
+      "\"",
+      ": ",
+      "\"",
+      "pending",
+      "\"",
+      "}"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489880696,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "tool-call",
+       "id": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+       "name": "intercom",
+       "arguments": "{\"action\": \"pending\"}"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489880696,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 2430,
+       "outputTokens": 90,
+       "cacheReadTokens": 10496,
+       "cacheWriteTokens": 0,
+       "totalTokens": 13016
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489880696,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "tool-calls"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "7b619a4d-59cb-492f-8026-4f7dc0e162d0"
+        },
+        {
+         "type": "tool-call"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "tool/call",
+  "seq": 22,
+  "time": 1792489880699,
+  "data": {
+   "turn": 1,
+   "step": 2,
+   "callId": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+   "name": "intercom",
+   "arguments": "{\"action\": \"pending\"}"
+  }
+ },
+ {
+  "type": "tool/result",
+  "seq": 23,
+  "time": 1792489880713,
+  "data": {
+   "turn": 1,
+   "step": 2,
+   "message": {
+    "role": "tool",
+    "source": {
+     "kind": "tool",
+     "callId": "call_00_lUac9rUmKHtu3fu2EmFN1312"
+    },
+    "toolCallId": "call_00_lUac9rUmKHtu3fu2EmFN1312",
+    "content": [
+     {
+      "type": "text",
+      "text": "No unresolved inbound asks."
+     }
+    ],
+    "isError": false,
+    "id": "4324c68a-7833-440b-b186-fb05b514928a"
+   }
+  },
+  "sourceEventSeqs": [
+   22
+  ],
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 24,
+  "time": 1792489880714,
+  "data": {
+   "turn": 1,
+   "step": 2
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 25,
+  "time": 1792489880753,
+  "data": {
+   "turn": 1,
+   "step": 3
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 26,
+  "time": 1792489881078,
+  "data": {
+   "sessionId": "session-8017d19d-3c84-4fe1-af46-1321db54c79e",
+   "sessionFormatVersion": 4,
+   "throughSeq": 25
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 27,
+  "time": 1792489882110,
+  "data": {
+   "turn": 1,
+   "step": 3,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": "No pending asks — so it was a `send`. I should use `send` to the given session id with message \"ok\"."
+     },
+     {
+      "type": "tool-call",
+      "id": "call_00_yuYJqIIoHBEIkQgOE1407555",
+      "name": "intercom",
+      "arguments": "{\"action\": \"send\", \"to\": \"session-4ae75a79-6714-4baf-a00e-ff504debf914\", \"message\": \"ok\"}"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "9a428846-0cc6-4da5-9e28-b0a7f09b1050"
+       },
+       {
+        "type": "tool-call"
+       }
+      ]
+     }
+    },
+    "id": "ca69ecde-fa0c-4ea2-8fae-d4d3c935bb56"
+   },
+   "usage": {
+    "inputTokens": 232,
+    "outputTokens": 119,
+    "cacheReadTokens": 12800,
+    "cacheWriteTokens": 0,
+    "totalTokens": 13151
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792489881102,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "reasoning-chunks",
+     "time0": 1792489881710,
+     "index": 0,
+     "dt": [
+      48,
+      13,
+      19,
+      17,
+      0,
+      0,
+      5,
+      15,
+      1,
+      0,
+      0,
+      15,
+      0,
+      9,
+      1,
+      0,
+      0,
+      0,
+      0,
+      11,
+      0,
+      0,
+      16,
+      12,
+      0,
+      0
+     ],
+     "texts": [
+      "No",
+      " pending",
+      " asks",
+      " —",
+      " so",
+      " it",
+      " was",
+      " a",
+      " `",
+      "send",
+      "`.",
+      " I",
+      " should",
+      " use",
+      " `",
+      "send",
+      "`",
+      " to",
+      " the",
+      " given",
+      " session",
+      " id",
+      " with",
+      " message",
+      " \"",
+      "ok",
+      "\"."
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489881981,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": "No pending asks — so it was a `send`. I should use `send` to the given session id with message \"ok\"."
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489881981,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "tool-call"
+     }
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489881982,
+     "index": 1,
+     "dt": [],
+     "id": "call_00_yuYJqIIoHBEIkQgOE1407555",
+     "name": "intercom",
+     "args": [
+      ""
+     ]
+    },
+    {
+     "type": "tool-call-chunks",
+     "time0": 1792489881982,
+     "index": 1,
+     "dt": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      5,
+      0,
+      0,
+      0,
+      13,
+      0,
+      1,
+      0,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      24,
+      0,
+      0,
+      6,
+      0,
+      0,
+      13,
+      0,
+      0,
+      0,
+      13,
+      0
+     ],
+     "id": "call_00_yuYJqIIoHBEIkQgOE1407555",
+     "args": [
+      "{",
+      "\"",
+      "action",
+      "\"",
+      ": ",
+      "\"",
+      "send",
+      "\"",
+      ", ",
+      "\"",
+      "to",
+      "\"",
+      ": ",
+      "\"",
+      "session",
+      "-",
+      "4",
+      "ae",
+      "75",
+      "a",
+      "79",
+      "-",
+      "671",
+      "4",
+      "-",
+      "4",
+      "b",
+      "af",
+      "-a",
+      "00",
+      "e",
+      "-",
+      "ff",
+      "504",
+      "de",
+      "bf",
+      "914",
+      "\"",
+      ", ",
+      "\"",
+      "message",
+      "\"",
+      ": ",
+      "\"",
+      "ok",
+      "\"",
+      "}"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489882108,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "tool-call",
+       "id": "call_00_yuYJqIIoHBEIkQgOE1407555",
+       "name": "intercom",
+       "arguments": "{\"action\": \"send\", \"to\": \"session-4ae75a79-6714-4baf-a00e-ff504debf914\", \"message\": \"ok\"}"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489882109,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 232,
+       "outputTokens": 119,
+       "cacheReadTokens": 12800,
+       "cacheWriteTokens": 0,
+       "totalTokens": 13151
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489882109,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "tool-calls"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "9a428846-0cc6-4da5-9e28-b0a7f09b1050"
+        },
+        {
+         "type": "tool-call"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "tool/call",
+  "seq": 28,
+  "time": 1792489882111,
+  "data": {
+   "turn": 1,
+   "step": 3,
+   "callId": "call_00_yuYJqIIoHBEIkQgOE1407555",
+   "name": "intercom",
+   "arguments": "{\"action\": \"send\", \"to\": \"session-4ae75a79-6714-4baf-a00e-ff504debf914\", \"message\": \"ok\"}"
+  }
+ },
+ {
+  "type": "tool/result",
+  "seq": 29,
+  "time": 1792489882136,
+  "data": {
+   "turn": 1,
+   "step": 3,
+   "message": {
+    "role": "tool",
+    "source": {
+     "kind": "tool",
+     "callId": "call_00_yuYJqIIoHBEIkQgOE1407555"
+    },
+    "toolCallId": "call_00_yuYJqIIoHBEIkQgOE1407555",
+    "content": [
+     {
+      "type": "text",
+      "text": "Message sent to session-4ae75a79-6714-4baf-a00e-ff504debf914"
+     }
+    ],
+    "isError": false,
+    "id": "9484290c-6584-493f-a7b1-4b82cb6b1a1a"
+   }
+  },
+  "sourceEventSeqs": [
+   28
+  ],
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 30,
+  "time": 1792489882137,
+  "data": {
+   "turn": 1,
+   "step": 3
+  }
+ },
+ {
+  "type": "step/start",
+  "seq": 31,
+  "time": 1792489882230,
+  "data": {
+   "turn": 1,
+   "step": 4
+  }
+ },
+ {
+  "type": "session-log-deepseek/delivery-accepted",
+  "seq": 32,
+  "time": 1792489882570,
+  "data": {
+   "sessionId": "session-8017d19d-3c84-4fe1-af46-1321db54c79e",
+   "sessionFormatVersion": 4,
+   "throughSeq": 31
+  }
+ },
+ {
+  "type": "assistant/message",
+  "seq": 33,
+  "time": 1792489883278,
+  "data": {
+   "turn": 1,
+   "step": 4,
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "reasoning",
+      "text": ""
+     },
+     {
+      "type": "text",
+      "text": "ok\n\n（已通过 intercom 回复会话 A：`session-4ae75a79…`，消息内容为 `ok`。）"
+     }
+    ],
+    "source": {
+     "kind": "model",
+     "provider": "deepseek-official",
+     "model": "deepseek-flash",
+     "replayState": {
+      "response": {
+       "kind": "deepseek-messages",
+       "version": 1,
+       "model": "deepseek-flash"
+      },
+      "blocks": [
+       {
+        "type": "reasoning",
+        "signature": "f62439ed-cd69-4a99-9138-fe63f813c869"
+       },
+       {
+        "type": "text"
+       }
+      ]
+     }
+    },
+    "id": "0eeadf95-603b-4289-b878-405fa2f59857"
+   },
+   "usage": {
+    "inputTokens": 261,
+    "outputTokens": 31,
+    "cacheReadTokens": 12928,
+    "cacheWriteTokens": 0,
+    "totalTokens": 13220
+   },
+   "stream": [
+    {
+     "type": "chunk",
+     "time": 1792489882572,
+     "chunk": {
+      "type": "block-start",
+      "index": 0,
+      "blockType": "reasoning"
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489883157,
+     "chunk": {
+      "type": "block-end",
+      "index": 0,
+      "block": {
+       "type": "reasoning",
+       "text": ""
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489883157,
+     "chunk": {
+      "type": "block-start",
+      "index": 1,
+      "blockType": "text"
+     }
+    },
+    {
+     "type": "text-chunks",
+     "time0": 1792489883157,
+     "index": 1,
+     "dt": [
+      12,
+      0,
+      16,
+      0,
+      18,
+      0,
+      0,
+      0,
+      8,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      12,
+      0,
+      0,
+      0,
+      0,
+      12,
+      0,
+      0,
+      23,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "texts": [
+      "ok",
+      "\n\n",
+      "（",
+      "已",
+      "通过",
+      " inter",
+      "com",
+      " ",
+      "回复",
+      "会话",
+      " A",
+      "：",
+      "`",
+      "session",
+      "-",
+      "4",
+      "ae",
+      "75",
+      "a",
+      "79",
+      "…",
+      "`",
+      "，",
+      "消息",
+      "内容",
+      "为",
+      " `",
+      "ok",
+      "`",
+      "。）"
+     ]
+    },
+    {
+     "type": "chunk",
+     "time": 1792489883277,
+     "chunk": {
+      "type": "block-end",
+      "index": 1,
+      "block": {
+       "type": "text",
+       "text": "ok\n\n（已通过 intercom 回复会话 A：`session-4ae75a79…`，消息内容为 `ok`。）"
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489883277,
+     "chunk": {
+      "type": "usage",
+      "usage": {
+       "inputTokens": 261,
+       "outputTokens": 31,
+       "cacheReadTokens": 12928,
+       "cacheWriteTokens": 0,
+       "totalTokens": 13220
+      }
+     }
+    },
+    {
+     "type": "chunk",
+     "time": 1792489883277,
+     "chunk": {
+      "type": "finish",
+      "reason": {
+       "kind": "stop"
+      },
+      "replayState": {
+       "response": {
+        "kind": "deepseek-messages",
+        "version": 1,
+        "model": "deepseek-flash"
+       },
+       "blocks": [
+        {
+         "type": "reasoning",
+         "signature": "f62439ed-cd69-4a99-9138-fe63f813c869"
+        },
+        {
+         "type": "text"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "surfaceOp": "append"
+ },
+ {
+  "type": "step/end",
+  "seq": 34,
+  "time": 1792489883278,
+  "data": {
+   "turn": 1,
+   "step": 4
+  }
+ },
+ {
+  "type": "turn/end",
+  "seq": 35,
+  "time": 1792489883279,
+  "data": {
+   "turn": 1,
+   "reason": {
+    "kind": "completed"
+   }
+  }
+ }
+]

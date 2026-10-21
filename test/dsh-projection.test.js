@@ -14,6 +14,11 @@ import { contextUsageOf, dshEntryId, projectDshEvent, projectDshSession } from '
  *     event (`session-log-deepseek/delivery-accepted`).
  *   - `dsh-session-error.json` — a turn that died on an LLM auth failure:
  *     `assistant/attempt` + `turn/end` with `reason.kind === 'error'`.
+ *   - `dsh-session-intercom.json` — a session that was CALLED by another one:
+ *     `dsh-intercom` injected a relay (`user/message` with
+ *     `source.kind === 'intercom'`, carrying the caller's session id), and the
+ *     session answered it. Recorded the same way, through two sessions in one
+ *     throwaway harness home.
  *
  * The extractor drops `system/message` and `request/header` (both ignored by the
  * projector and both carrying an environment snapshot) and rewrites the probe
@@ -21,6 +26,7 @@ import { contextUsageOf, dshEntryId, projectDshEvent, projectDshSession } from '
  */
 const real = JSON.parse(readFileSync(new URL('./fixtures/dsh-session-events.json', import.meta.url), 'utf8'))
 const failed = JSON.parse(readFileSync(new URL('./fixtures/dsh-session-error.json', import.meta.url), 'utf8'))
+const called = JSON.parse(readFileSync(new URL('./fixtures/dsh-session-intercom.json', import.meta.url), 'utf8'))
 
 /** The pressure shape DSH's token meter projects; the ring must show these numbers. */
 const pressure = { pressureTokens: 12_345, surfaceTokens: 12_000, contextWindow: 1_000_000, claim: { start: 0, end: 55, tokens: 12_345 } }
@@ -140,4 +146,46 @@ test('unknown events are ignored, not guessed at', () => {
   assert.ok(real.some(event => event.type === 'agent/inbox/spliced'))
   assert.equal(session.entries.some(entry => entry.kind === 'delivery-accepted'), false)
   assert.deepEqual(projectDshEvent({ type: 'some/plugin-event', seq: 1, time: 0, data: {} }, { turnEntryId: null, model: null, contextWindow: null }), [])
+})
+
+test('a call from another session becomes a card that owns the turn it opened', () => {
+  // `dsh-intercom` delivers a peer's message as a `user/message` whose source
+  // kind is `intercom`. That IS a turn — the human is not the only one who can
+  // start one — so it becomes a `call` card carrying the caller's session id.
+  //
+  // It must also set the turn anchor. The canvas groups a turn as "everything
+  // after a turn-opening entry", so a relay that left the anchor alone would
+  // glue the answer to the PREVIOUS card and overwrite that card's answer.
+  const session = projectDshSession(called)
+  const relays = called.filter(event => event.type === 'user/message' && event.data.source.kind === 'intercom')
+  const prompts = called.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')
+  assert.ok(relays.length > 0, 'fixture 应当带有 intercom relay')
+  assert.equal(session.entries.filter(entry => entry.kind === 'call').length, relays.length)
+  // Every OTHER injected kind is still not a card: the relay is the exception,
+  // not a hole in the filter.
+  assert.equal(session.entries.filter(entry => entry.kind === 'user').length, prompts.length)
+
+  const call = session.entries.find(entry => entry.kind === 'call')
+  assert.match(call.from, /^session-[0-9a-f-]+$/)
+  assert.equal(call.from, relays[0].data.source.senderSessionId)
+  // The relay body is kept verbatim — it carries the caller header and the
+  // reply hint, which is exactly what the detail view should show.
+  assert.match(call.text, /intercom/)
+  const answered = session.entries.filter(entry => entry.kind === 'assistant' && entry.turn === call.id)
+  assert.ok(answered.length > 0, 'relay 之后的回答必须挂在这条 call 上，而不是上一张卡')
+})
+
+test('a relay with no sender is still a card, with no caller to name', () => {
+  // Every observed relay carries `senderSessionId`; a log that lacks it must not
+  // invent a caller. The card then says 未知会话 instead of pointing nowhere.
+  const state = { turnEntryId: null, model: null, contextWindow: null }
+  const entries = projectDshEvent({
+    type: 'user/message',
+    seq: 7,
+    time: 1_700_000_000_000,
+    data: { content: [{ type: 'text', text: '来自别处的呼叫' }], source: { kind: 'intercom', form: 'relay' } },
+  }, state)
+  assert.deepEqual(entries.map(entry => entry.kind), ['call'])
+  assert.equal(entries[0].from, null)
+  assert.equal(state.turnEntryId, '00000007')
 })

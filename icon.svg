@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <defs>
+    <linearGradient id="synapse-card" x1="5" y1="3" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6FC0FE"/>
+      <stop offset="1" stop-color="#3B5FE0"/>
+    </linearGradient>
+    <linearGradient id="synapse-branch" x1="21.5" y1="22" x2="33" y2="31.5" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B39CFF"/>
+      <stop offset="1" stop-color="#7A63F0"/>
+    </linearGradient>
+  </defs>
+  <!-- 连线先画，卡片压在上层：分支从右侧边缘长出来 -->
+  <path d="M15.5 16.4c1.5 0 1.3-7.9 2.5-7.9" stroke="#5B8CF5" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M15.5 19.6c2.9 0 4.1 7.15 6 7.15" stroke="#9381F2" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="3" y="13" width="12.5" height="9.5" rx="2.8" fill="url(#synapse-card)"/>
+  <rect x="18" y="3.5" width="15" height="10" rx="3" fill="url(#synapse-card)"/>
+  <rect x="21.5" y="22" width="11.5" height="9.5" rx="2.8" fill="url(#synapse-branch)"/>
+  <!-- 每张卡一条白线：它们是会话卡片，不是抽象的节点 -->
+  <path d="M5.6 17.75h7.3" stroke="#FFFFFF" stroke-opacity=".85" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M20.6 8.5h9.8" stroke="#FFFFFF" stroke-opacity=".85" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M24.1 26.75h6.3" stroke="#FFFFFF" stroke-opacity=".85" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

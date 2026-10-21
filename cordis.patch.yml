@@ -22,3 +22,8 @@
         # 额外的 /synapse Host 白名单（host 或 host:port）；localhost 与 127.0.0.1
         # 总是允许，这里只用来放行反代/远程访问的 authority。
         trustedHosts: []
+        # Agent Teams 的 teammate 以 Lead 卡片下的一排 chip 显示（默认开）。
+        # 关掉整个挂件用 includeTeamMembers: false；includeSubagents 是另一件事 ——
+        # 把所有一次性 subagent 也当普通分支画出来，默认关。
+        # includeTeamMembers: true
+        # includeSubagents: false

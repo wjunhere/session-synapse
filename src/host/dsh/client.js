@@ -519,7 +519,11 @@ loader.load({
           const workspace = ctx.get('uiWorkspace')
           if (workspace === undefined) return send('synapse:bridge-error', { message: '宿主不支持切换会话' })
           try {
-            workspace.openSession(data.sessionId)
+            // A Team member is a delegated child session: the host maps it to a
+            // transcript only through its durable parent address, not a bare
+            // child id. Everything else opens by plain SessionId.
+            const address = typeof ctx.sessions.subagentAddress === 'function' ? ctx.sessions.subagentAddress(data.sessionId) : undefined
+            workspace.openSession(address ?? data.sessionId)
             // "Open this session" means its CONVERSATION: with the map on its own
             // tab the host would otherwise stay on whatever view that session
             // last had — the map — which is not what the button promises.

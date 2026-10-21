@@ -12,9 +12,9 @@
  * reload.
  */
 import {
-  loadBranchAnchors, loadCardPositions, loadCollapsedCards, loadQuickPhrases, loadSettings,
+  loadBranchAnchors, loadCardPositions, loadCollapsedCards, loadExpandedTeams, loadQuickPhrases, loadSettings,
   clearCardPositions, normalizeSettings, persistBranchAnchors,
-  persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistQuickPhrases as saveQuickPhrases, persistSettings as saveSettings,
+  persistCardPositions as saveCardPositions, persistCollapsedCards as saveCollapsedCards, persistExpandedTeams as saveExpandedTeams, persistQuickPhrases as saveQuickPhrases, persistSettings as saveSettings,
 } from './storage.js'
 import { hostLabels } from './host-labels.js'
 import { DETAIL_PAGE_SIZE } from './detail-window.js'
@@ -24,7 +24,7 @@ export const state = {
   // Set by the host over the bridge (`synapse:chrome`): the host provides its own
   // sidebar and header, so the canvas brings none. See styles.css `embedded`.
   embedded: false,
-  capabilities: { sendMessage: false, forkSession: false, openSession: false, archiveSession: false, renameSession: false, btw: false, setTools: false },
+  capabilities: { sendMessage: false, forkSession: false, openSession: false, archiveSession: false, renameSession: false, btw: false, setTools: false, intercom: false },
   // Host wording (button labels, empty-state hints). Neutral until
   // /synapse/api/status names the adapter — see host-labels.js.
   hostLabels: hostLabels(undefined),
@@ -43,9 +43,24 @@ export const state = {
   settings: loadSettings(),
   hostWorkspaces: [], selectedHostWorkspaceId: null,
   pendingReplies: new Map(), pendingRpc: new Map(), liveReplies: new Map(),
+  // Card-to-card calls (`src/canvas/intercom.js`). `capabilities.intercom` says
+  // the HOST has the feature at all (DSH declares it, pi-web does not);
+  // `intercom` is what the panel answered the one probe with — a host that
+  // declares the capability can still have intercom switched off
+  // (`enabled: false`), and then the button must not appear either.
+  intercom: { available: false, checked: false, roster: null, error: '' },
+  // The open picker. `from` is the identity the call goes out as (resolved once
+  // on open, re-resolved before sending) and `note` is mirrored here from the
+  // textarea without a re-render, so typing does not rebuild the document.
+  intercomPicker: { open: false, cardId: null, threadId: null, from: null, to: null, note: '', sending: false, error: '' },
+  // Traces of calls sent from this browser session, keyed by card id: card id →
+  // { to, label, at, ok, error }. Deliberately NOT part of the workspace data:
+  // it is this client's view of what it just did, and it must never reach
+  // workspaces.json (one writer owns that file, and a call is not canvas data).
+  intercomCalls: new Map(),
   // The settings panel is open (a dialog over the map; it previews live).
   settingsOpen: false,
-  draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(loadBranchAnchors()), cardPositions: new Map(loadCardPositions()), collapsedCardIds: new Set(loadCollapsedCards()), quickPhrases: loadQuickPhrases(), quickPhraseEditorOpen: false,
+  draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(loadBranchAnchors()), cardPositions: new Map(loadCardPositions()), collapsedCardIds: new Set(loadCollapsedCards()), expandedTeams: new Set(loadExpandedTeams()), quickPhrases: loadQuickPhrases(), quickPhraseEditorOpen: false,
   dragging: false, canvasGesture: false, canvasRefreshAfter: 0, canvasViewInitialized: false, canvasCamera: { x: 0, y: 0 }, mapCardSessionSwitches: new Set(),
   expandedMessageIds: new Set(),
   canvasCards: undefined, canvasCardsById: undefined, canvasGraph: undefined, mountedCardIds: new Set(), canvasNeedsCenter: false,
@@ -71,6 +86,20 @@ export function rememberCardPosition(cardId, position, aliases = []) {
 export function persistCardPositions() { saveCardPositions(state.cardPositions) }
 export function persistCollapsedCards() { saveCollapsedCards(state.collapsedCardIds) }
 export function persistQuickPhrases() { saveQuickPhrases(state.quickPhrases) }
+
+/**
+ * Open or fold one Lead's Team strip.
+ *
+ * Default is folded: a Team can be sixteen agents, and a permanent chip farm
+ * under every Lead card is the clutter the fold exists to prevent. The choice
+ * is remembered per Lead thread, like a collapsed card, so reopening the canvas
+ * does not unfold what the user put away.
+ */
+export function toggleExpandedTeam(leadThreadId) {
+  if (state.expandedTeams.has(leadThreadId)) state.expandedTeams.delete(leadThreadId)
+  else state.expandedTeams.add(leadThreadId)
+  saveExpandedTeams(state.expandedTeams)
+}
 
 export function resetCardPositions() {
   state.cardPositions.clear()

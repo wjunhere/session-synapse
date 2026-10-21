@@ -8,14 +8,15 @@
  * PointerEvent / MouseEvent / ClipboardEvent. The element is guaranteed by
  * app.html, and the whole module already assumes it.
  */
-import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera, updateSettings } from './state.js'
+import { state, persistCardPositions, persistCollapsedCards, persistQuickPhrases, rememberBranchAnchor, rememberCardPosition, resetCardPositions, resetCanvasCamera, toggleExpandedTeam, updateSettings } from './state.js'
 import { escapeHtml, displayText, laneColor, formatTime, formatTokens, contextRing } from './format.js'
 import { renderMarkdown } from './markdown.js'
 import { enhanceRichBlocks, refreshRichBlocks } from './rich-blocks.js'
 import { ICON, ICON_PATHS, closeIcon, RENAME_ICON, HOST_ARCHIVE_ICON, EYE_ICON, EYE_OFF_ICON, GEAR_ICON } from './icons.js'
 import { MAX_IMAGES, MAX_IMAGE_BYTES, compressImageFile, releaseDraftImages, promptImages, draftMessageText } from './images.js'
 import { MAX_QUICK_PHRASES, MAX_QUICK_PHRASE_LENGTH, CARD_SCALE_RANGE, CARD_FONT_SCALE_RANGE, CARD_GAP_RANGE, RECENT_DAYS_CHOICES } from './storage.js'
-import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession } from './host.js'
+import { api, post, openSessionInHost, useWriteTransport, hostSendMessage, hostEnsureSession, hostForkSession, hostRenameSession, hostArchiveSession, hostBtwSession, intercomRoster, intercomSend, intercomName } from './host.js'
+import { CALL_NOTE_LIMIT, rosterTargets, resolveSender, callMessageBody, callCardLabel, senderLabel } from './intercom.js'
 import { hostLabels } from './host-labels.js'
 import { DETAIL_PAGE_SIZE, detailWindow } from './detail-window.js'
 const app = /** @type {HTMLElement} */ (document.querySelector('#app'))
@@ -91,7 +92,7 @@ const currentThread = () => state.workspace?.threads.find(thread => thread.id ==
 const threadById = threadId => state.workspace?.threads.find(thread => thread.id === threadId) ?? null
 /** The projected context-window figure for a thread, or null when unknown. */
 const contextUsageFor = threadId => threadById(threadId)?.contextUsage ?? null
-const threadListTitle = thread => thread.sessionTitle ?? thread.title ?? questionFor(thread)
+const threadListTitle = thread => thread.kind === 'team' && typeof thread.team?.name === 'string' ? thread.team.name : (thread.sessionTitle ?? thread.title ?? questionFor(thread))
 
 // ---------------------------------------------------------------------------
 // Which threads get cards
@@ -146,6 +147,9 @@ function threadActivityAt(thread) {
 function threadVisibility(thread) {
   if (thread.hidden === true) return 'hidden'
   if (thread.hidden === false) return 'shown'
+  // A teammate that is working (or still being provisioned) is active by
+  // definition, even if its last line landed before the activity window.
+  if (thread.kind === 'team' && (thread.team?.status === 'running' || thread.team?.status === 'provisioning')) return 'shown'
   const window = recentWindowMs()
   if (window === null) return 'shown'
   const activity = threadActivityAt(thread)
@@ -463,6 +467,23 @@ async function renameThread(thread) {
   } catch (error) {
     setError(error)
     return
+  }
+  // The intercom alias is a SECOND, weaker name for the same session: it is what
+  // the other end of a call sees, and it lives in the intercom panel's own
+  // memory (it is lost when that process restarts). It is synced here, after the
+  // host has accepted the rename, because that is the only name that persists.
+  //
+  // A failure here is reported and NOT rolled back — the host rename already
+  // happened and undoing it would leave the session named something the user
+  // never chose. Same deliberate exception as the floating-cluster archive in
+  // host.js: a cosmetic second step must not fail the real one.
+  if (state.intercom.available === true && typeof thread.sessionId === 'string' && thread.sessionId !== '') {
+    try {
+      await intercomName(thread.sessionId, name)
+      rememberIntercomName(thread.sessionId, name)
+    } catch (error) {
+      setError(`会话已改名，但 intercom 别名没同步上：${error instanceof Error ? error.message : String(error)}`)
+    }
   }
   render()
 }
@@ -866,21 +887,29 @@ function conversationCards(threads) {
   const cards = []
   const cardsByThread = new Map()
   for (const thread of threads) {
-    // A /btw side question is rendered as a widget under its parent card, not
-    // as turn cards: it is not a turn in the main chain, and giving it nodes
-    // would misrepresent the conversation's shape.
-    if (thread.kind === 'btw') continue
+    // A /btw side question and a Team member are rendered as widgets under
+    // their parent's card, not as turn cards: neither is a turn in this
+    // conversation's chain, and giving them nodes would misrepresent its shape.
+    // (A member's own turns stay one click away in its transcript.)
+    if (thread.kind === 'btw' || thread.kind === 'team') continue
     const messages = messagesFor(thread)
     const turns = []
     for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
       const question = messages[messageIndex]
-      if (question.kind !== 'user') continue
+      // A call (`kind: 'call'`, a relayed intercom message) starts a turn of its
+      // own exactly like the user's own prompt does. Leaving it out was not a
+      // neutral omission: its ANSWER would be attached to the previous card,
+      // overwriting that card's answer with a reply to a question the card never
+      // asked.
+      if (question.kind !== 'user' && question.kind !== 'call') continue
       const replies = []
       const errors = []
       let processCount = 0
       for (let replyIndex = messageIndex + 1; replyIndex < messages.length; replyIndex++) {
         const reply = messages[replyIndex]
-        if (reply.kind === 'user') break
+        // …and it ends one just as firmly, so the next card cannot inherit this
+        // turn's replies.
+        if (reply.kind === 'user' || reply.kind === 'call') break
         if (reply.kind === 'assistant') replies.push(reply)
         if (reply.kind === 'error') errors.push(reply)
         if (Array.isArray(reply.process)) processCount += reply.process.length
@@ -911,6 +940,12 @@ function conversationCards(threads) {
         answer,
         error,
         processCount,
+        // A card that came in over intercom. `callFrom` is the sending session
+        // (or null when the relay carried no sender), which the card head and
+        // footer name — the question text of such a turn is the composed call
+        // message, not something a user typed on this canvas.
+        isCall: question.kind === 'call',
+        callFrom: question.kind === 'call' ? question.from ?? null : null,
         // Declared here rather than only assigned on the newest turn below, so
         // every card carries the same shape (a reader that ran before the
         // assignment would otherwise see `undefined`).
@@ -941,6 +976,8 @@ function conversationCards(threads) {
       answer: null,
       error: null,
       processCount: 0,
+      isCall: false,
+      callFrom: null,
       canContinue: false,
       })
     }
@@ -1140,10 +1177,19 @@ function conversationCard(card, graph) {
     : `<button class="graph-btw-button" data-action="open-btw" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" data-seq="${card.answer.sourceEntryId}" aria-label="开启侧问（继承上下文、工具可选）" title="侧问：继承当前上下文，工具在草稿卡里选（默认只读），${state.hostLabels.btwArchiveHint}">${ICON(`<path d="${ICON_PATHS.speaker}"/><path d="${ICON_PATHS.speakerAdd}"/>`)}</button>`
   // Actions the host cannot perform are omitted instead of rendered as
   // buttons that would fail on click.
-  // Host-side writes (rename, pi-web's own archive) are rare and destructive,
-  // so they sit as icon-only buttons with a tooltip; spelling them out pushed
-  // the footer onto a second line on a 310px card. The canvas-side archive
-  // keeps its label because it is the reversible, everyday action.
+  //
+  // EVERY footer control is icon-only and carries its wording in `title` +
+  // `aria-label` instead. Labels were what pushed this row onto a second line:
+  // measured, the six controls are 184px as icons and 265.9px with the words,
+  // against 230px of room on a 248px card — so the words wrapped the footer at
+  // 85–90% card size, while the icons fit at every size down to 80%.
+  //
+  // Losing the words also means the icons have to carry the meaning, which is
+  // why the canvas-side removal is NOT the archive glyph it used to be: at 13px
+  // it and 「在宿主中归档」 were the same box (they were told apart by the text
+  // that is no longer there). It is a card with an × instead — this button
+  // DELETES the thread from this canvas (`DELETE /synapse/api/threads/:id`), it
+  // does not hide it, so the sidebar's eye is not the right metaphor either.
   //
   // The two archives are deliberately separate controls: 「pi-web 归档」changes
   // the host's own list, 「归档」only takes the card off this canvas. A session
@@ -1154,6 +1200,38 @@ function conversationCard(card, graph) {
   const threadCards = state.canvasCards?.filter(item => item.hostThreadId === card.hostThreadId) ?? []
   const isLatestOfThread = threadCards.at(-1)?.id === card.id
   const running = isLatestOfThread && isThreadStreaming(card.hostThreadId)
+  // Card-to-card call. The button is gated by the TWO boot facts only: the host
+  // has the feature (`capabilities.intercom`, which only DSH declares — the
+  // adapter contract says a host without it reports false) and the panel answered
+  // that it is usable (`state.intercom.available`, false while intercom is
+  // switched off there). Whether THIS card can actually be sent — who the call
+  // goes out as, and whether any target exists — is decided when the picker
+  // opens, against a roster fetched at that moment.
+  //
+  // Do NOT move `resolveSender` back into here. The roster is only refreshed at
+  // boot and when the picker opens, so a gate that needs it would deadlock
+  // exactly where it matters: a session that became active after boot would
+  // never grow a button, and the one path that refreshes the roster (opening the
+  // picker) would be the path the missing button hides.
+  const callButton = state.capabilities.intercom === true && state.intercom.available === true
+    ? `<button class="card-call-button" data-action="open-intercom" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" aria-label="呼叫其他会话" title="呼叫其他会话：把这张卡片发给另一个正在运行的会话">${CALL_ICON}</button>`
+    : ''
+  const callTrace = state.intercomCalls.get(card.id)
+  const traceHtml = callTrace === undefined
+    ? ''
+    : `<span class="card-call-trace${callTrace.ok === true ? '' : ' is-failed'}" title="${escapeHtml(callTrace.ok === true ? `已把这张卡片呼叫给 ${callTrace.label}` : `呼叫失败：${callTrace.error}`)}">${callTrace.ok === true ? `已呼叫 ${escapeHtml(callTrace.label)}` : `呼叫 ${escapeHtml(callTrace.label)} 失败`}</span>`
+  // A received call names its sender instead of asking a question: the turn's
+  // text is the composed intercom message, which is far too long for a card
+  // head. `callCardLabel` resolves the sender's session here when it has a card
+  // on this canvas.
+  const callChip = card.isCall === true ? '<span class="call-chip">呼叫</span>' : ''
+  const headTitle = card.isCall === true ? callCardLabel(card.callFrom, state.workspace?.threads ?? []) : card.question
+  const headTitleHint = card.isCall === true ? '查看完整会话（这张卡片来自一次呼叫）' : `查看完整会话：${escapeHtml(card.question)}`
+  // Only a call that named its sender can be followed back to them; a relay
+  // without one (`from: null`) has nowhere to go.
+  const callerButton = typeof card.callFrom === 'string' && card.callFrom !== ''
+    ? `<button data-action="open-caller" data-session="${escapeHtml(card.callFrom)}" title="在 ${state.hostLabels.name} 中打开呼叫方会话" aria-label="打开呼叫方会话">${ICON(`<path d="${ICON_PATHS.external}"/>`)}</button>`
+    : ''
   const hostActions = [
     state.capabilities.renameSession === true
       ? `<button data-action="rename-thread" data-thread="${card.hostThreadId}" title="重命名会话" aria-label="重命名会话">${RENAME_ICON}</button>`
@@ -1166,10 +1244,10 @@ function conversationCard(card, graph) {
     <button class="node-handle" data-drag-card="${card.id}" aria-label="拖动 ${escapeHtml(card.question)}" title="拖动卡片（方向键也可移动，Shift 微调）"></button>
     ${contextRing(contextUsageFor(card.hostThreadId))}
     ${continueButton}${foldButton}${branchButton}${btwButton}
-    <div class="thread-card-head"><span class="topic-dot"></span><button class="thread-title" data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话：${escapeHtml(card.question)}">${escapeHtml(card.question)}</button></div>
-    <div class="thread-meta"><span>${source}</span><span>第 ${card.turnIndex + 1} 轮</span>${card.error === null ? '' : '<span class="card-error-status">失败</span>'}${card.processCount > 0 ? `<span class="card-process-count">工具 ${card.processCount}</span>` : ''}</div>
+    <div class="thread-card-head"><span class="topic-dot"></span>${callChip}<button class="thread-title" data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="${headTitleHint}">${escapeHtml(headTitle)}</button></div>
+    <div class="thread-meta"><span>${source}</span><span>第 ${card.turnIndex + 1} 轮</span>${card.error === null ? '' : '<span class="card-error-status">失败</span>'}${card.processCount > 0 ? `<span class="card-process-count">工具 ${card.processCount}</span>` : ''}${traceHtml}</div>
     <div class="thread-answer">${card.answer === null ? (card.error === null ? '<p class="thread-answer-empty">等待助手回复</p>' : '') : card.answer.pending && card.answer.text === '' ? '<p class="thread-answer-pending">正在回复</p>' : `${renderMarkdown(card.answer.text)}${card.answer.pending ? '<p class="thread-answer-pending">正在回复</p>' : ''}`}${card.error === null ? '' : `<p class="thread-answer-error" title="${escapeHtml(card.error.text)}">本轮失败：${escapeHtml(card.error.text)}</p>`}</div>
-    <footer><button data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话" aria-label="查看完整会话">${ICON('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>')}详情</button><button data-action="open-host" data-thread="${card.hostThreadId}" data-seq="${typeof card.sourceEntryId === 'string' && card.sourceEntryId !== '' ? card.sourceEntryId : ''}" title="${state.hostLabels.openIn}" aria-label="${state.hostLabels.openIn}">${ICON(`<path d="${ICON_PATHS.external}"/><path d="M9.5 3.5h3v3M12.2 3.8 7.5 8.5"/>`)}${state.hostLabels.openInShort}</button>${hostActions}<button data-action="archive-thread" data-thread="${card.hostThreadId}" title="从画布移除（原会话保留）" aria-label="从画布归档">${ICON(`<path d="${ICON_PATHS.arch}"/><path d="M4 5 5 2.8a.7.7 0 0 1 .6-.4h4.8a.7.7 0 0 1 .6.4L12 5M6 9.5h4"/>`)}归档</button></footer>
+    <footer>${callButton}<button data-action="show-thread" data-thread="${card.hostThreadId}" data-card="${escapeHtml(card.id)}" title="查看完整会话" aria-label="查看完整会话">${ICON('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2"/>')}</button><button data-action="open-host" data-thread="${card.hostThreadId}" data-seq="${typeof card.sourceEntryId === 'string' && card.sourceEntryId !== '' ? card.sourceEntryId : ''}" title="${state.hostLabels.openIn}" aria-label="${state.hostLabels.openIn}">${ICON(`<path d="${ICON_PATHS.external}"/><path d="M9.5 3.5h3v3M12.2 3.8 7.5 8.5"/>`)}</button>${hostActions}${callerButton}<button data-action="archive-thread" data-thread="${card.hostThreadId}" title="从画布移除（原会话保留）" aria-label="从画布归档">${ICON('<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="M6.6 6.6 9.4 9.4M9.4 6.6 6.6 9.4"/>')}</button></footer>
   </article>`
 }
 
@@ -1335,9 +1413,10 @@ function draftPlacement(cards) {
       ? cards.filter(card => card.hostThreadId === draft.parentId).at(-1)
       : cards.find(card => card.id === draft.anchorId)
     if (anchor === undefined) return null
-    // Slot the draft after the side questions already hanging there.
+    // Slot the draft after the side questions already hanging there (and below
+    // the Lead's Team strip, so it never lands on top of the agents).
     const existing = state.workspace?.threads.filter(thread => thread.kind === 'btw' && thread.parentId === draft.parentId).length ?? 0
-    return { parent: anchor, position: btwSlot(anchor, existing) }
+    return { parent: anchor, position: btwSlot(anchor, existing, teamStripShift(draft.parentId)) }
   }
   const parent = draft.anchorId === undefined
     ? cards.filter(card => card.hostThreadId === draft.parentId).at(-1)
@@ -1347,10 +1426,10 @@ function draftPlacement(cards) {
 }
 
 /** Where the Nth btw widget sits: a compact row just below the parent card. */
-function btwSlot(card, index) {
+function btwSlot(card, index, offsetY = 0) {
   const width = Math.round(cardWidth() / 3)
   const gap = 10
-  return { x: card.position.x + index * (width + gap), y: card.position.y + cardHeight() + 18 }
+  return { x: card.position.x + index * (width + gap), y: card.position.y + cardHeight() + 18 + offsetY }
 }
 
 /**
@@ -1361,8 +1440,8 @@ function btwSlot(card, index) {
  * conversation's shape. The widget is the whole surface; clicking it opens the
  * thread's detail view, where the full exchange and the composer live.
  */
-function btwWidget(thread, parentCard, index) {
-  const position = btwSlot(parentCard, index)
+function btwWidget(thread, parentCard, index, offsetY = 0) {
+  const position = btwSlot(parentCard, index, offsetY)
   const title = thread.title ?? thread.sessionTitle ?? '侧问'
   const messages = messagesFor(thread)
   const turns = messages.filter(message => message.kind === 'user').length
@@ -1402,9 +1481,132 @@ function btwWidgets(cards, threads, visibleIds = null) {
     // A folded ancestor hides the anchor card; the widget follows it, so a
     // collapsed branch takes its side questions out of view with it.
     if (visibleIds !== null && !visibleIds.has(anchor.id)) continue
-    widgets.push(btwWidget(thread, anchor, widgets.length))
+    widgets.push(btwWidget(thread, anchor, widgets.length, teamStripShift(thread.parentId)))
   }
   return widgets.join('')
+}
+
+// ─────────────────────────── Agent Teams strip ───────────────────────────
+
+/** One chip row's height, how many chips a card-width row holds, and the folded pill. */
+const TEAM_CHIP_ROW_HEIGHT = 26
+const TEAM_CHIPS_PER_ROW = 3
+const TEAM_FOLDED_HEIGHT = 32
+/** Dots in the folded pill before the remainder becomes "+N". */
+const TEAM_FOLDED_DOTS = 7
+const TEAM_CHEVRON = ICON(`<path d="${ICON_PATHS.chevronRight}"/>`, { className: 'team-toggle-chevron' })
+
+/** The Team-member threads hanging off one Lead thread, in projection order. */
+function teamMembersOf(leadThreadId) {
+  return (state.workspace?.threads ?? []).filter(thread => thread.kind === 'team' && thread.parentId === leadThreadId)
+}
+
+/**
+ * How much vertical room the Team widget takes under a Lead card.
+ *
+ * Widgets hanging below the SAME card (btw) are pushed past it, so a side
+ * question never covers the agents. Folded is one pill; unfolded is one row per
+ * three chips (the CSS wraps by content, so this is a conservative estimate).
+ * Zero when the Lead has no team, which keeps every existing layout untouched.
+ */
+function teamStripShift(leadThreadId) {
+  const count = teamMembersOf(leadThreadId).length
+  if (count === 0) return 0
+  const height = state.expandedTeams.has(leadThreadId) ? Math.ceil(count / TEAM_CHIPS_PER_ROW) * TEAM_CHIP_ROW_HEIGHT : TEAM_FOLDED_HEIGHT
+  // The widget starts 6px under the card; btw widgets start at 18px.
+  return height - 6
+}
+
+/** Where the Team widget sits: a compact row just below the Lead's latest card. */
+function teamSlot(card) {
+  return { x: card.position.x, y: card.position.y + cardHeight() + 6 }
+}
+
+/** Human wording for one roster status (the chip's tooltip). */
+function teamStatusLabel(status) {
+  switch (status) {
+    case 'running': return '正在工作'
+    case 'provisioning': return '启动中'
+    case 'failed': return '启动失败'
+    default: return '空闲'
+  }
+}
+
+/**
+ * One member's status: the bridge's live running bit wins over the replayed
+ * status in the store, which only catches up on the next 5s scan.
+ */
+function teamMemberStatusOf(thread) {
+  if (state.liveReplies.get(thread.sessionId)?.running === true) return 'running'
+  return typeof thread.team?.status === 'string' ? thread.team.status : 'inactive'
+}
+
+/** The folded pill's at-a-glance summary: one dot per agent. */
+function teamDots(members) {
+  const shown = members.slice(0, TEAM_FOLDED_DOTS)
+  const dots = shown.map(thread => `<span class="team-dot" data-status="${escapeHtml(teamMemberStatusOf(thread))}"></span>`).join('')
+  const more = members.length > shown.length ? `<span class="team-dot-more">+${members.length - shown.length}</span>` : ''
+  return `<span class="team-dots" aria-hidden="true">${dots}${more}</span>`
+}
+
+/** One agent chip in the unfolded strip. */
+function teamChip(thread) {
+  const team = thread.team ?? {}
+  const name = typeof team.name === 'string' && team.name !== '' ? team.name : '队友'
+  const status = teamMemberStatusOf(thread)
+  const running = status === 'running' || status === 'provisioning'
+  const description = typeof team.description === 'string' && team.description !== '' ? ` — ${team.description}` : ''
+  const failure = typeof team.error === 'string' && team.error !== '' ? `（${team.error}）` : ''
+  const hint = `${name} · ${teamStatusLabel(status)}${description}${failure}`
+  return `<button class="team-chip${running ? ' is-running' : ''}" type="button" data-action="show-thread" data-thread="${escapeHtml(thread.id)}" data-status="${escapeHtml(status)}" title="${escapeHtml(hint)}" aria-label="${escapeHtml(hint)}"><span class="team-chip-dot" aria-hidden="true"></span><span class="team-chip-name">${escapeHtml(name)}</span></button>`
+}
+
+/**
+ * One Lead's Team, folded to a single pill by default.
+ *
+ * A teammate is an AGENT, not a turn in the Lead's conversation: drawing its
+ * turns as cards would mix two conversations in one lane. The folded pill shows
+ * the count plus a dot per agent (so "who is working / failed" is readable
+ * without unfolding); clicking it unfolds the chips, and clicking the badge
+ * again folds them back. The choice is remembered per Lead.
+ */
+function teamWidget(card, members) {
+  const leadId = card.hostThreadId
+  const position = teamSlot(card)
+  const open = state.expandedTeams.has(leadId)
+  const running = members.some(thread => teamMemberStatusOf(thread) === 'running')
+  const summary = members.map(thread => `${thread.team?.name ?? '队友'} ${teamStatusLabel(teamMemberStatusOf(thread))}`).join('、')
+  const toggleLabel = open ? `收起队友（${members.length} 名）` : `展开队友（${members.length} 名）：${summary}`
+  const toggle = `<button class="team-toggle" type="button" data-action="toggle-team" data-team="${escapeHtml(leadId)}" aria-expanded="${open ? 'true' : 'false'}" title="${escapeHtml(toggleLabel)}" aria-label="${escapeHtml(toggleLabel)}"><span class="team-toggle-badge">团队</span><span class="team-toggle-count">${members.length}</span>${open ? '' : teamDots(members)}${TEAM_CHEVRON}</button>`
+  if (!open) {
+    return `<article class="team-widget is-folded${running ? ' is-running' : ''}" data-team="${escapeHtml(leadId)}" style="left:${position.x}px;top:${position.y}px">${toggle}</article>`
+  }
+  return `<article class="team-widget is-open" data-team="${escapeHtml(leadId)}" style="left:${position.x}px;top:${position.y}px">${toggle}<div class="team-widget-members">${members.map(thread => teamChip(thread)).join('')}</div></article>`
+}
+
+/**
+ * Every visible Team strip for the current view.
+ *
+ * One strip per Lead, anchored on that Lead's latest visible card — the same
+ * card a collapse or an aged-out card already governs, so a collapsed Lead
+ * takes its team out of view with it.
+ */
+function teamWidgets(cards, threads, visibleIds = null) {
+  const byLead = new Map()
+  for (const thread of threads) {
+    if (thread.kind !== 'team' || thread.parentId === null) continue
+    const members = byLead.get(thread.parentId) ?? []
+    members.push(thread)
+    byLead.set(thread.parentId, members)
+  }
+  const html = []
+  for (const [leadId, members] of byLead) {
+    const anchor = [...cards].reverse().find(card => card.hostThreadId === leadId)
+    if (anchor === undefined) continue
+    if (visibleIds !== null && !visibleIds.has(anchor.id)) continue
+    html.push(teamWidget(anchor, members))
+  }
+  return html.join('')
 }
 
 // The attach affordance shares one code path with paste (`attachImages`), so a
@@ -1547,7 +1749,8 @@ function renderCanvas() {
   state.mountedCardIds = new Set(visible)
   const mounted = cards.filter(card => visible.has(card.id))
   const widgets = btwWidgets(cards, visibleThreads, visible)
-  return `<section class="canvas-view"><div class="canvas-viewport"><div class="canvas-content" style="transform:translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})"><svg class="connectors">${canvasConnectors(cards)}</svg><div class="cards-layer">${mounted.map(card => conversationCard(card, graph)).join('')}${widgets}${draftCard(cards)}</div></div></div></section>`
+  const teamStrip = teamWidgets(cards, threads, visible)
+  return `<section class="canvas-view"><div class="canvas-viewport"><div class="canvas-content" style="transform:translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})"><svg class="connectors">${canvasConnectors(cards)}</svg><div class="cards-layer">${mounted.map(card => conversationCard(card, graph)).join('')}${widgets}${teamStrip}${draftCard(cards)}</div></div></div></section>`
 }
 
 function isProcessMessage(message) {
@@ -1589,11 +1792,16 @@ function anchorSequence(cardId) {
 
 function threadMessage(thread, message) {
   const isUser = message.kind === 'user'
-  const label = isUser ? '你'
-    : message.kind === 'assistant' ? 'pi'
+  // In a teammate's transcript the human prompt is the LEAD's spawn brief, not
+  // something the reader typed; naming it 「你」 would misattribute it. The
+  // assistant side is that teammate answering, not the canvas's host runtime.
+  const teamName = thread.kind === 'team' && typeof thread.team?.name === 'string' && thread.team.name !== '' ? thread.team.name : null
+  const label = isUser ? (teamName === null ? '你' : 'Lead')
+    : message.kind === 'assistant' ? (teamName ?? 'pi')
     : message.kind === 'error' ? '错误'
     : message.kind === 'compaction' ? '上下文压缩'
     : message.kind === 'branch' ? '分支摘要'
+    : message.kind === 'call' ? '呼叫'
     : '记录'
   const branch = message.kind === 'assistant' && typeof message.sourceEntryId === 'string' && message.sourceEntryId !== ''
     ? `<button class="message-branch" data-action="open-branch" data-thread="${thread.id}" data-seq="${message.sourceEntryId}" title="从此回答创建分支">${ICON(`<path d="${ICON_PATHS.branch}"/><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="11.5" cy="12" r="1.5"/>`)}分支</button>`
@@ -1628,7 +1836,10 @@ function messagesForCard(card) {
   let turnIndex = -1
   let start = -1
   for (let index = 0; index < messages.length; index++) {
-    if (messages[index].kind !== 'user') continue
+    // Same turn boundary as `conversationCards`: a call opens one too, so a card
+    // whose turn is a call must find ITS start here, and the transcript must
+    // stop before the next turn instead of swallowing it.
+    if (messages[index].kind !== 'user' && messages[index].kind !== 'call') continue
     turnIndex += 1
     if (turnIndex === card.turnIndex) {
       start = index
@@ -1636,7 +1847,7 @@ function messagesForCard(card) {
     }
   }
   if (start === -1) return { thread, messages: [] }
-  const end = messages.findIndex((message, index) => index > start && message.kind === 'user')
+  const end = messages.findIndex((message, index) => index > start && (message.kind === 'user' || message.kind === 'call'))
   return { thread, messages: messages.slice(start, end === -1 ? undefined : end) }
 }
 
@@ -1669,7 +1880,11 @@ function renderThread() {
   // time it can honestly claim.
   const lastAt = all.at(-1)?.at
   const isBtw = thread.kind === 'btw'
-  const badge = isBtw ? '侧问' : thread.parentId === null ? '会话' : '分支'
+  const isTeam = thread.kind === 'team'
+  const team = isTeam ? (thread.team ?? {}) : null
+  const teamName = team !== null && typeof team.name === 'string' && team.name !== '' ? team.name : '队友'
+  const badge = isTeam ? '队友' : isBtw ? '侧问' : thread.parentId === null ? '会话' : '分支'
+  const badgeClass = isTeam ? ' detail-badge-team' : isBtw ? ' detail-badge-btw' : ''
   // A btw thread reports what it may do: the tool set pi-web pinned on it,
   // which is what makes a side question materially different from a plain fork.
   const tools = isBtw && Array.isArray(thread.tools)
@@ -1677,7 +1892,22 @@ function renderThread() {
     : ''
   const usage = contextUsageFor(thread.id)
   const usageLabel = usage === null ? '' : `<span class="detail-usage" title="上下文占用">${usage.percent.toFixed(1)}% · ${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}</span>`
-  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${isBtw ? ' detail-badge-btw' : ''}">${badge}</span>${tools}${usageLabel}${thread.sessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.sessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1><p class="detail-eyebrow">${all.length} 条记录${start === 0 ? '' : ` · 显示最近 ${messages.length} 条`}${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="${state.hostLabels.openIn}此会话">${state.hostLabels.openIn}</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${earlier}${messages.map(message => threadMessage(thread, message)).join('')}${all.length === 0 ? '<div class="note-empty">等待这条会话的第一条消息。</div>' : ''}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
+  // A teammate's masthead answers "who is this agent", not "what was the first
+  // question": its first user message is the Lead's spawn prompt, which is long
+  // and is not a question the reader asked.
+  const subtitle = isTeam
+    ? (typeof team.description === 'string' && team.description !== '' ? team.description : teamStatusLabel(team.status))
+    : (thread.sessionTitle ?? thread.title)
+  const subtitleLabel = typeof subtitle === 'string' && subtitle !== '' ? `<span class="detail-subtitle">${escapeHtml(subtitle)}</span>` : ''
+  const heading = isTeam ? teamName : questionFor(thread)
+  // A teammate's turns are not this canvas's to fork or continue: the host owns
+  // the addressed-subagent conversation, and the "open in host" button resolves
+  // that address on the client side.
+  const branchButton = isTeam ? '' : `<button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button>`
+  const composer = isTeam
+    ? '<p class="message-readonly">只读：这是 DSH 团队里的一个 agent。点「在 DSH 中打开」可以继续它的对话。</p>'
+    : `<form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="${isBtw ? '继续这个侧问…' : '继续当前会话…'}" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form>`
+  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge${badgeClass}">${badge}</span>${tools}${usageLabel}${subtitleLabel}</div><h1>${escapeHtml(heading)}</h1><p class="detail-eyebrow">${all.length} 条记录${start === 0 ? '' : ` · 显示最近 ${messages.length} 条`}${lastAt === undefined ? '' : ` · 最后更新 ${formatTime(lastAt)}`}</p></div><div class="detail-head-actions"><button data-action="open-host" data-thread="${thread.id}" data-seq="${typeof latestAssistantSeq === 'string' && latestAssistantSeq !== '' ? latestAssistantSeq : ''}" title="${state.hostLabels.openIn}此会话">${state.hostLabels.openIn}</button>${branchButton}<button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${earlier}${messages.map(message => threadMessage(thread, message)).join('')}${all.length === 0 ? '<div class="note-empty">等待这条会话的第一条消息。</div>' : ''}</div>${composer}</section>`
 }
 
 function render() {
@@ -1732,6 +1962,7 @@ function render() {
     const reason = visibility === 'stale' ? `（${state.settings.recentDays} 天前没有活动，默认不显示）` : ''
     // The badge slot carries one thing only — why this row looks the way it does.
     const badge = visibility === 'stale' ? `<i class="tree-stale">${state.settings.recentDays} 天前</i>`
+      : thread.kind === 'team' ? '<i class="tree-team">队友</i>'
       : thread.kind === 'btw' ? '<i class="tree-btw">btw</i>'
         : thread.parentId === null ? '' : '<i>分支</i>'
     return `<div class="tree-item${off ? ' is-off' : ''}"><button class="tree-row ${thread.id === state.activeId ? 'active' : ''}" data-action="select-thread" data-thread="${thread.id}" style="--thread-color:${laneColor(index)}"><span class="tree-dot"></span><span class="tree-index">${String(index + 1).padStart(2, '0')}</span><span class="tree-title">${escapeHtml(threadListTitle(thread))}</span>${badge}</button><button class="tree-visibility" type="button" data-action="toggle-visibility" data-thread="${thread.id}" aria-pressed="${off ? 'true' : 'false'}" aria-label="${action}${reason}" title="${action}${reason}">${off ? EYE_OFF_ICON : EYE_ICON}</button></div>`
@@ -1746,7 +1977,7 @@ function render() {
   // 留一条横跨顶部的栏就还是「应用套应用」。
   const embedded = state.embedded
   const buildStartedAt = performance.now()
-  const html = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${state.settingsOpen ? settingsPanel() : ''}${selectionFollowupButton()}</section></main>`
+  const html = `<main class="synapse-shell ${embedded ? 'embedded' : (state.sidebarCollapsed ? 'sidebar-collapsed' : '')}">${embedded ? '' : `<aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}">${ICON('<rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2.25"/><path d="M6.25 2.5v11"/>')}</button></div>${newSessionButton}<label class="workspace-label"><span>工作区</span><span class="workspace-select">${ICON('<path d="M2 5.75a1.5 1.5 0 0 1 1.5-1.5h2.2c.4 0 .78.16 1.06.44l.54.54h4.2a1.5 1.5 0 0 1 1.5 1.5v4.52a1.5 1.5 0 0 1-1.5 1.5H3.5a1.5 1.5 0 0 1-1.5-1.5Z"/>')}<select data-action="select-workspace" aria-label="选择工作区" ${state.draft !== null ? 'disabled' : ''}>${choices.map(item => `<option value="${item.id}" title="${escapeHtml(item.path ?? item.title)}" ${item.id === selectedWorkspaceId ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></span></label><div class="sidebar-heading"><span>会话</span><span class="sidebar-count" title="地图上显示的 / 全部会话">${countLabel}</span></div><nav class="thread-tree">${threadRows || '<p class="tree-empty">暂未同步会话</p>'}</nav></aside>`}${embedded ? '' : `<header class="topbar">${mastheadLead}${canvasControls}</header>`}<section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">${closeIcon()}</button></div>` : ''}${embedded ? '' : canvasTabs}${view}${embedded ? canvasControls : ''}${state.settingsOpen ? settingsPanel() : ''}${intercomPopover()}${selectionFollowupButton()}</section></main>`
   // The projection polls once a second, and every poll that finds a changed
   // workspace rebuilds this string. Writing it is what costs: parsing a long
   // transcript's HTML and laying it out again blocked the main thread for
@@ -1764,12 +1995,28 @@ function render() {
   state.detailEntered = false
   renderStats.renders += 1
   renderStats.lastBuildMs = Math.round(performance.now() - buildStartedAt)
+  // A projection poll can rewrite the document while the user is typing the
+  // note of an open call picker. The textarea is a fresh element after the
+  // write, so its caret and focus are captured here and put back below — the
+  // text itself lives in `state.intercomPicker.note` and survives either way.
+  const noteFocused = document.activeElement instanceof HTMLTextAreaElement && document.activeElement.classList.contains('intercom-note') ? document.activeElement : null
+  const noteCaret = noteFocused === null ? null : { start: noteFocused.selectionStart, end: noteFocused.selectionEnd }
   if (html === lastRenderedHtml) return
   lastRenderedHtml = html
   const writeStartedAt = performance.now()
   app.innerHTML = html
   installDragging()
   cacheCardConnectors()
+  // The picker is `position: fixed`, so where it sits is not part of the string
+  // that was just written: it is measured from the card it belongs to.
+  positionIntercomPopover()
+  if (noteCaret !== null) {
+    const note = app.querySelector('.intercom-note')
+    if (note instanceof HTMLTextAreaElement) {
+      note.focus()
+      note.setSelectionRange(noteCaret.start, noteCaret.end)
+    }
+  }
   // The initial camera from renderCanvas is inset (viewport not laid out yet);
   // center it on the focused card once the canvas DOM is mounted.
   if (state.canvasNeedsCenter) {
@@ -1834,6 +2081,9 @@ function renderPreservingDetailScroll() {
 function applyCanvasTransform() {
   const content = document.querySelector('.canvas-content')
   if (content instanceof HTMLElement) content.style.transform = `translate(${state.canvasCamera.x}px, ${state.canvasCamera.y}px) scale(${state.zoom})`
+  // The call picker is `position: fixed` and anchored to a card, so a pan or a
+  // zoom has to carry it along: the browser moves the world, not the dialog.
+  positionIntercomPopover()
 }
 
 /** Where a card sits right now, in canvas coordinates. */
@@ -1860,6 +2110,9 @@ function placeCard(card, cardId, position) {
   if (dataCard !== undefined) dataCard.position = { x: position.x, y: position.y }
   card.style.left = `${position.x}px`
   card.style.top = `${position.y}px`
+  // An open call picker is anchored to this card's rectangle; a drag that left
+  // it behind would point at empty canvas.
+  positionIntercomPopover()
   refreshCardConnectors(cardId)
   return aliases
 }
@@ -2138,6 +2391,272 @@ app.addEventListener('pointerup', queueSelectionFollowup)
 app.addEventListener('scroll', hideSelectionFollowup, true)
 document.addEventListener('selectionchange', queueSelectionFollowup)
 
+// ──────────────────────── card-to-card calls (intercom) ────────────────────────
+//
+// 「呼叫其他会话」 hands one card's turn to another RUNNING session through
+// dsh-intercom's own panel (`/intercom/*`, same origin as this canvas — host.js
+// owns the call). Three things this section is deliberately loud about:
+//
+//   - WHO speaks. intercom only accepts a `from` hosted by this dsh process, so
+//     the canvas cannot speak as the user or as itself; it resolves an identity
+//     and shows it BEFORE sending. When that identity had to be borrowed from
+//     the current session instead of being the card's own, the picker says so in
+//     words rather than sending as someone else quietly.
+//   - WHAT happens at the other end. The target starts working immediately, and
+//     a session that is mid-turn gets the message steered into that turn. That
+//     is a warning in the picker, not a footnote.
+//   - WHERE the trace lives. In memory (`state.intercomCalls`): a call is this
+//     client's own action, not canvas data. workspaces.json has exactly one
+//     writer and this is not it.
+
+/** The handset. Inline because it is the only place this glyph is used. */
+const CALL_ICON = ICON('<path d="M3.1 2.9h2.2l1.3 2.9-1.6 1.2a8.6 8.6 0 0 0 4 4l1.2-1.6 2.9 1.3v2.2a1.4 1.4 0 0 1-1.5 1.4A12.2 12.2 0 0 1 1.7 4.4 1.4 1.4 0 0 1 3.1 2.9Z"/>')
+
+/** Session statuses the intercom roster reports, in the canvas's own words. */
+const INTERCOM_STATUS = { idle: '空闲', thinking: '正在跑' }
+
+/** One roster row by id, preferring the session row (it carries name/cwd/status). */
+function intercomRow(id) {
+  const roster = state.intercom.roster
+  const rows = [...(roster?.sessions ?? []), ...(roster?.senders ?? [])]
+  return rows.find(row => row?.id === id) ?? null
+}
+
+/**
+ * Re-read the panel's roster. Throws the host's own failure — no fallback.
+ *
+ * `available` follows ONLY `enabled`: a panel that answers with `enabled: false`
+ * has no senders either, and every call would be refused with a 409.
+ */
+async function refreshIntercomRoster() {
+  const roster = await intercomRoster()
+  state.intercom.roster = roster
+  state.intercom.available = roster?.enabled === true
+  state.intercom.error = ''
+  return roster
+}
+
+/**
+ * The one capability probe, run once per boot after `/synapse/api/status`.
+ *
+ * Silent on failure BY DESIGN — the only silent catch in this file, and the
+ * exception is exact: this asks "does this host have intercom at all?", and a
+ * host that answers no (pi-web has no such route) is a normal answer rather than
+ * an error to show. Nothing was written and no user action failed. Every later
+ * failure — opening the picker, sending — is reported where it happened.
+ */
+async function probeIntercom() {
+  // A host that never offered the capability is not probed at all; nothing
+  // visible would change, so no render is needed either.
+  if (state.capabilities.intercom !== true) {
+    state.intercom.checked = true
+    return
+  }
+  try {
+    await refreshIntercomRoster()
+  } catch (error) {
+    state.intercom.roster = null
+    state.intercom.available = false
+    state.intercom.error = error instanceof Error ? error.message : String(error)
+  }
+  state.intercom.checked = true
+  render()
+}
+
+/** Mirror an accepted alias into the roster we already hold, so labels match. */
+function rememberIntercomName(sessionId, name) {
+  const roster = state.intercom.roster
+  for (const row of [...(roster?.sessions ?? []), ...(roster?.senders ?? [])]) {
+    if (row?.id === sessionId) row.name = name
+  }
+}
+
+/**
+ * The picker's identity line.
+ *
+ * `from` is the id the call will go out as. When it is the card's own session
+ * this is a plain statement of fact; when it is not, the reason is always the
+ * same one (`resolveSender` borrows the current session only when the card's own
+ * session is not hosted by this process), so the sentence warns about exactly
+ * that instead of leaving the reader to guess why the name changed.
+ */
+function intercomSenderLine(from, thread) {
+  if (typeof from !== 'string' || from === '') return '这个 dsh 进程里没有可作呼叫方的活会话。'
+  const row = intercomRow(from)
+  const label = escapeHtml(row === null ? senderLabel({ id: from }) : senderLabel(row))
+  if (thread !== null && thread !== undefined && thread.sessionId === from) return `以「${escapeHtml(threadListTitle(thread))}」的身份发出`
+  return `这张卡片所属的会话不在本进程的呼叫名单里，改以当前会话「${label}」的身份发出`
+}
+
+/**
+ * The picker.
+ *
+ * `role="dialog"` with `aria-modal`, like the settings panel: both are anchored
+ * over the canvas and both leave the page behind them inert by convention rather
+ * than by a focus trap.
+ */
+function intercomPopover() {
+  const picker = state.intercomPicker
+  if (picker.open !== true) return ''
+  const thread = threadById(picker.threadId)
+  // The speaker is never a target: the host refuses `from === to`.
+  const targets = rosterTargets(state.intercom.roster, { selfId: picker.from, cwd: state.workspace?.cwd ?? null })
+  const rows = targets.map(target => {
+    const on = target.id === picker.to
+    const place = target.sameCwd ? '同一工作目录' : target.cwd === '' ? '未知工作目录' : target.cwd
+    const status = target.status === '' ? '' : INTERCOM_STATUS[target.status] ?? target.status
+    const hint = `${target.id}\n${place}${status === '' ? '' : `\n状态：${status}`}`
+    return `<button type="button" class="intercom-target${on ? ' is-on' : ''}" data-action="select-call-target" data-session="${escapeHtml(target.id)}" aria-pressed="${on}" title="${escapeHtml(hint)}"><span class="intercom-target-name">${escapeHtml(target.label)}</span><span class="intercom-target-meta">${escapeHtml(place)}${status === '' ? '' : ` · ${escapeHtml(status)}`}</span></button>`
+  }).join('')
+  const disabled = picker.to === null || picker.from === null || picker.sending === true ? 'disabled' : ''
+  return `<section class="intercom-popover" role="dialog" aria-modal="true" aria-label="呼叫其他会话">
+    <header class="intercom-head"><strong>呼叫其他会话</strong><button type="button" data-action="close-intercom" aria-label="关闭" title="关闭">${closeIcon()}</button></header>
+    <p class="intercom-sender">${intercomSenderLine(picker.from, thread)}</p>
+    <div class="intercom-targets" role="group" aria-label="选择呼叫目标">${rows === '' ? '<p class="intercom-empty">现在没有别的可呼叫会话。目标必须是另一个正在运行的会话。</p>' : rows}</div>
+    <label class="intercom-note-label"><span>附言（可选）</span><textarea class="intercom-note" maxlength="${CALL_NOTE_LIMIT}" placeholder="想让对方额外知道什么？最多 ${CALL_NOTE_LIMIT} 字" aria-label="附言">${escapeHtml(picker.note)}</textarea></label>
+    <p class="intercom-warning">对方会立刻开始处理这条消息；正在跑的会话会被插进当前轮。</p>
+    ${picker.error === '' ? '' : `<p class="intercom-error" role="alert">${escapeHtml(picker.error)}</p>`}
+    <div class="intercom-actions"><button type="button" data-action="close-intercom">取消</button><button class="primary" type="button" data-action="call-session" ${disabled}>${picker.sending === true ? '呼叫中…' : '呼叫'}</button></div>
+  </section>`
+}
+
+/**
+ * Put the picker beside the card it belongs to.
+ *
+ * Called after every render that wrote it, and from `applyCanvasTransform`, so a
+ * pan or a zoom carries it along — `position: fixed` does not follow the world
+ * by itself. With no mounted card (it scrolled out of the mounted window) the
+ * picker is centred instead: it stays usable, whereas a position remembered from
+ * a card that is no longer there would sit over some other card's content.
+ */
+function positionIntercomPopover() {
+  const popover = app.querySelector('.intercom-popover')
+  if (!(popover instanceof HTMLElement)) return
+  const bounds = popover.getBoundingClientRect()
+  const margin = 12
+  const maxLeft = Math.max(margin, window.innerWidth - bounds.width - margin)
+  const maxTop = Math.max(margin, window.innerHeight - bounds.height - margin)
+  const card = state.intercomPicker.cardId === null ? null : app.querySelector(`.thread-card[data-card-id="${CSS.escape(state.intercomPicker.cardId)}"]`)
+  const anchor = card instanceof HTMLElement ? card.getBoundingClientRect() : null
+  if (anchor === null) {
+    popover.style.left = `${Math.min(maxLeft, Math.max(margin, (window.innerWidth - bounds.width) / 2))}px`
+    popover.style.top = `${Math.min(maxTop, Math.max(margin, (window.innerHeight - bounds.height) / 2))}px`
+    return
+  }
+  // Right of the card when it fits there, left of it when the card is near the
+  // right edge, clamped into the window either way.
+  let left = anchor.right + 10
+  if (left > maxLeft) left = anchor.left - bounds.width - 10
+  popover.style.left = `${Math.min(maxLeft, Math.max(margin, left))}px`
+  popover.style.top = `${Math.min(maxTop, Math.max(margin, anchor.top))}px`
+}
+
+function closeIntercomPicker() {
+  const picker = state.intercomPicker
+  picker.open = false
+  picker.cardId = null
+  picker.threadId = null
+  picker.from = null
+  picker.to = null
+  picker.note = ''
+  picker.sending = false
+  picker.error = ''
+  render()
+}
+
+/**
+ * Open the picker for one card.
+ *
+ * The roster is re-read on every open rather than trusted from boot: sessions
+ * come and go, and it is this fresh list that decides whether the call can be
+ * made at all (who the `from` is, and which targets exist).
+ *
+ * The fetch comes FIRST and the picker opens SECOND, so it appears in exactly
+ * one render with a complete list. Opening it immediately and filling the
+ * targets in a moment later would be a flash of emptiness for the user — and a
+ * race for anything reading the dialog's rows right after it appears (the
+ * verification suite clicks this button and reads the targets next). The cost is
+ * that a very slow roster answer (the panel starting a broker process) delays
+ * the dialog; the local round trip is otherwise a few milliseconds.
+ *
+ * A picker with no possible sender still opens and says so, with 呼叫 disabled —
+ * closing it would leave the user with a button that did nothing and no
+ * explanation.
+ */
+async function openIntercomPicker(thread, card) {
+  let roster
+  try {
+    roster = await refreshIntercomRoster()
+  } catch (error) {
+    // The panel is not answering at all. A button whose only outcome is a failure
+    // is worse than no button, so the canvas stops offering it, and the host's own
+    // message is shown rather than swallowed.
+    state.intercom.available = false
+    state.intercom.roster = null
+    return setError(error)
+  }
+  if (roster?.enabled !== true) return setError('intercom 面板在这个宿主里没有启用，无法呼叫其他会话。')
+  // No sender is not an error to throw at the top of the canvas: it is a fact
+  // about THIS attempt, so it is stated where the attempt is being made — and
+  // the 呼叫 button stays disabled because there is nobody to send as.
+  const sender = resolveSender(state.intercom.roster, { cardSessionId: thread.sessionId ?? null, currentSessionId: state.currentSession?.id ?? null })
+  const picker = state.intercomPicker
+  picker.open = true
+  picker.cardId = card.id
+  picker.threadId = thread.id
+  picker.from = sender === null ? null : sender.id
+  picker.to = null
+  picker.note = ''
+  picker.sending = false
+  picker.error = ''
+  render()
+}
+
+/**
+ * Send the open picker's card.
+ *
+ * The sender is resolved AGAIN here instead of using `picker.from`: the roster
+ * can lose a session while the picker is open, and sending as an id the panel no
+ * longer hosts would come back as a `from` error the user cannot act on.
+ */
+async function sendIntercomCall(thread, card) {
+  const picker = state.intercomPicker
+  if (picker.to === null) return setError('请先选一个呼叫目标。')
+  const sender = resolveSender(state.intercom.roster, { cardSessionId: thread?.sessionId ?? null, currentSessionId: state.currentSession?.id ?? null })
+  if (sender === null) {
+    picker.error = '呼叫方没有了：intercom 现在不接受任何本机会话作为发送者。'
+    return render()
+  }
+  const target = intercomRow(picker.to)
+  const label = senderLabel(target === null ? { id: picker.to } : target)
+  const body = callMessageBody({
+    title: thread === null || thread === undefined ? '' : threadListTitle(thread),
+    cwd: state.workspace?.cwd ?? null,
+    question: card.question,
+    answer: typeof card.answer?.text === 'string' ? card.answer.text : '',
+    note: picker.note,
+    sessionId: thread?.sessionId ?? null,
+    seq: typeof card.sourceEntryId === 'string' ? card.sourceEntryId : null,
+  })
+  picker.sending = true
+  picker.error = ''
+  render()
+  try {
+    await intercomSend(sender.id, picker.to, body)
+    state.intercomCalls.set(card.id, { to: picker.to, label, at: new Date().toISOString(), ok: true, error: '' })
+    closeIntercomPicker()
+  } catch (error) {
+    // Reported in place, and the trace keeps saying it after the picker closes:
+    // a failed send may still have reached the broker (the panel's `delivered`
+    // proves no more than acceptance), so the card must not silently look clean.
+    const message = error instanceof Error ? error.message : String(error)
+    picker.sending = false
+    picker.error = message
+    state.intercomCalls.set(card.id, { to: picker.to, label, at: new Date().toISOString(), ok: false, error: message })
+    render()
+  }
+}
+
 // The settings sliders preview LIVE (`input`) and commit the redraw on release
 // (`change`): a full render() per input event would rebuild the panel under the
 // user's finger and drop the drag. `change` also fires for a keyboard-driven
@@ -2161,6 +2680,10 @@ function applySettingInput(input) {
 app.addEventListener('input', event => {
   const input = event.target
   if (input instanceof HTMLInputElement && input.dataset.setting !== undefined) applySettingInput(input)
+  // The call picker's note is mirrored into the state WITHOUT a re-render: this
+  // fires once per keystroke, and rebuilding the document (and with it the
+  // textarea the user is typing into) would drop the caret mid-sentence.
+  if (input instanceof HTMLTextAreaElement && input.classList.contains('intercom-note')) state.intercomPicker.note = input.value
 })
 app.addEventListener('change', event => {
   const input = event.target
@@ -2289,6 +2812,26 @@ app.addEventListener('click', async event => {
     }
     if (button.dataset.action === 'open-continue' && thread !== undefined) openContinue(thread, button.dataset.card)
     if (button.dataset.action === 'open-btw' && thread !== undefined) openBtw(thread, button.dataset.card, button.dataset.seq)
+    // A call is opened/sent against the CARD MODEL, not the button: the picker
+    // outlives many renders, and a card that has left the canvas in the meantime
+    // must fail loudly rather than send a stale copy of itself.
+    if (button.dataset.action === 'open-intercom') {
+      const card = button.dataset.card === undefined ? undefined : state.canvasCardsById?.get(button.dataset.card)
+      if (thread === undefined || card === undefined) return setError('这张卡片已经不在了，无法呼叫。')
+      await openIntercomPicker(thread, card)
+    }
+    if (button.dataset.action === 'close-intercom') closeIntercomPicker()
+    if (button.dataset.action === 'select-call-target' && button.dataset.session !== undefined) {
+      state.intercomPicker.to = button.dataset.session
+      render()
+    }
+    if (button.dataset.action === 'call-session') {
+      const card = state.intercomPicker.cardId === null ? undefined : state.canvasCardsById?.get(state.intercomPicker.cardId)
+      const target = threadById(state.intercomPicker.threadId)
+      if (card === undefined || target === undefined) return setError('这张卡片已经不在了，无法呼叫。')
+      await sendIntercomCall(target, card)
+    }
+    if (button.dataset.action === 'open-caller' && button.dataset.session !== undefined) openSessionInHost(button.dataset.session)
     if (button.dataset.action === 'toggle-draft-tool' && button.dataset.tool !== undefined) {
       const draft = state.draft
       if (draft !== null && draft.kind === 'btw') {
@@ -2307,6 +2850,7 @@ app.addEventListener('click', async event => {
     }
     if (button.dataset.action === 'cancel-draft') { releaseDraftImages(state.draft); state.draft = null; state.quickPhraseEditorOpen = false; render() }
     if (button.dataset.action === 'toggle-message' && button.dataset.message !== undefined) { state.expandedMessageIds.has(button.dataset.message) ? state.expandedMessageIds.delete(button.dataset.message) : state.expandedMessageIds.add(button.dataset.message); renderPreservingDetailScroll() }
+    if (button.dataset.action === 'toggle-team' && button.dataset.team !== undefined) { toggleExpandedTeam(button.dataset.team); render() }
     if (button.dataset.action === 'open-host' && thread?.sessionId !== null) openSessionInHost(thread.sessionId)
     if (button.dataset.action === 'archive-thread' && thread !== undefined) await archiveThread(thread)
     if (button.dataset.action === 'rename-thread' && thread !== undefined) await renameThread(thread)
@@ -2507,6 +3051,10 @@ api('/synapse/api/status').then(status => {
       : Array.isArray(status?.tools) ? status.tools
       : []
     state.btwToolOptions = btwChipNames(options.filter(name => typeof name === 'string'), state.btwDefaultTools)
+    // Whether intercom is actually usable is a SECOND question the status
+    // response cannot answer (the host may have the panel switched off), so it
+    // is asked once, here, after the capabilities are in.
+    if (state.capabilities.intercom === true) void probeIntercom()
   } catch (error) {
     setError(error)
   }

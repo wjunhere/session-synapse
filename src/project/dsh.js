@@ -16,7 +16,10 @@
  *     carries the human's prompt (`source.kind === 'user'`) and every snapshot
  *     the harness injects (`time-context`, `agent-instructions`, `skill-catalog`,
  *     `runtime-context`, `tool-jobs`, `compact-checkpoint`, …). Only the human's
- *     kind becomes a card; the rest would dwarf the map.
+ *     kind becomes a card; the rest would dwarf the map. One non-human kind is
+ *     the exception: `intercom` — a message another dsh session addressed to
+ *     this one (`dsh-intercom`), which IS a turn and carries the caller's
+ *     session id.
  *
  * Entry ids are the event `seq`, zero-padded to a fixed width. That is not
  * cosmetic: the canvas resolves a fork's parent card by comparing
@@ -133,13 +136,26 @@ export function projectDshEvent(event, state) {
       return title === '' ? [] : [{ id: `${id}:title`, kind: 'title', text: title, at }]
     }
     case 'user/message': {
-      if (data?.source?.kind !== 'user') return []
+      const sourceKind = data?.source?.kind
+      // A human prompt and an intercom relay are both real turns; every other
+      // kind is injected context (see the module header) and never a card.
+      if (sourceKind !== 'user' && sourceKind !== 'intercom') return []
       const text = textOf(data.content)
       const imageCount = imageCountOf(data.content)
       // An image-only message carries no prose but IS a turn; the store keeps it
       // alive from the count alone.
       if (text === '' && imageCount === 0) return []
+      // The turn anchor is set for a relay too, and that is load-bearing: the
+      // canvas groups a turn as "everything after a user entry", so leaving the
+      // anchor on the previous human turn would glue this turn's answer to THAT
+      // card and overwrite its answer.
       state.turnEntryId = id
+      if (sourceKind === 'intercom') {
+        // dsh-intercom's relay. `senderSessionId` is the only handle the canvas
+        // has on who called, so it rides on the entry as `from`.
+        const sender = data?.source?.senderSessionId
+        return [{ id, kind: 'call', text, at, from: typeof sender === 'string' && sender !== '' ? sender : null }]
+      }
       return [{ id, kind: 'user', text, at, ...(imageCount > 0 ? { imageCount } : {}) }]
     }
     case 'assistant/message': {

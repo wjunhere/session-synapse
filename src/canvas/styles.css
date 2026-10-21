@@ -462,6 +462,7 @@ html[data-embedded] {
 .tree-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row i { flex: none; margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: 9px; font-style: normal; letter-spacing: .04em; }
 .tree-row .tree-btw { border-radius: 3px !important; background: var(--violet-bg) !important; padding: 0 4px !important; color: var(--violet) !important; }
+.tree-row .tree-team { border-radius: 3px !important; background: var(--info-bg) !important; padding: 0 4px !important; color: var(--info) !important; }
 
 .tree-dot, .topic-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--ink-1); }
 .tree-dot { width: 5px; height: 5px; color: var(--ink-3); background: currentColor; }
@@ -906,7 +907,86 @@ html[data-embedded] {
 .btw-widget-remove:hover { border: 0; background: transparent; color: var(--violet); opacity: 1; }
 .btw-widget:focus-within { border-color: var(--violet); }
 
+/* ─────────────────────────── Agent Teams strip ─────────────────────────── */
+
+/* A teammate is an AGENT, not a turn in the Lead's conversation, so it gets no
+   cards: one folded pill hangs under the Lead's latest card (count + one dot per
+   agent + chevron), and clicking it unfolds the chips. The unfolded strip wraps
+   at three chips per card width; the JS side (`teamStripShift` in app.js)
+   reserves room for whichever shape is showing, so a /btw widget below the same
+   card never covers the agents. */
+.team-widget {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+/* Folded: the pill sizes to its content. */
+.team-widget.is-folded { width: auto; }
+/* Unfolded: the toggle plus the chip rows, up to one card wide. */
+.team-widget.is-open { width: var(--card-w, 310px); max-width: var(--card-w, 310px); }
+.team-toggle {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 0 7px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.team-toggle:hover { border-color: var(--line-strong); background: var(--surface-hover); color: var(--ink); }
+.team-widget.is-open .team-toggle { min-height: 20px; }
+.team-widget.is-running .team-toggle { border-color: var(--info); }
+.team-toggle-badge { flex: none; border-radius: 3px; background: var(--info-bg); padding: 0 4px; color: var(--info); font-family: var(--font-mono); font-size: 9px; letter-spacing: .04em; }
+.team-toggle-count { flex: none; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.team-toggle-chevron { width: 10px; height: 10px; flex: none; color: var(--ink-3); transition: transform .18s var(--ease); }
+.team-widget.is-open .team-toggle-chevron { transform: rotate(90deg); }
+.team-dots { display: inline-flex; flex: none; align-items: center; gap: 3px; padding-left: 2px; }
+.team-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); }
+.team-dot[data-status='running'] { background: var(--info); }
+.team-dot[data-status='provisioning'] { background: var(--warn); }
+.team-dot[data-status='failed'] { background: var(--danger); }
+.team-widget.is-running .team-dot[data-status='running'] { animation: team-dot-pulse 2.6s ease-in-out infinite; }
+.team-dot-more { color: var(--ink-3); font-family: var(--font-mono); font-size: 8px; }
+.team-widget-members { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 4px; }
+.team-chip {
+  display: inline-flex;
+  max-width: 47%;
+  min-height: 20px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 0 6px;
+  color: var(--ink-2);
+  font-size: calc(10.5px * var(--card-font-scale, 1));
+  font-weight: 500;
+}
+.team-chip:hover { border-color: var(--line-strong); background: var(--surface-hover); color: var(--ink); }
+.team-chip.is-running { border-color: var(--info); color: var(--ink-1); }
+.team-chip-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--ink-3); }
+.team-chip[data-status='running'] .team-chip-dot { background: var(--info); }
+.team-chip[data-status='provisioning'] .team-chip-dot { background: var(--warn); }
+.team-chip[data-status='failed'] .team-chip-dot { background: var(--danger); }
+/* Working agents pulse; provisioning is a state, not movement, and failed is
+   already loud enough in red. Only box-shadow animates. */
+.team-chip.is-running .team-chip-dot { animation: team-dot-pulse 2.6s ease-in-out infinite; }
+@keyframes team-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px var(--info-bg); }
+}
+.team-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .detail-badge-btw { background: var(--violet-bg) !important; color: var(--violet) !important; }
+.detail-badge-team { background: var(--info-bg) !important; color: var(--info) !important; }
 
 .selection-followup {
   position: fixed;
@@ -1158,6 +1238,105 @@ html[data-embedded] {
 .message-composer textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; background: var(--surface); }
 .message-composer button { min-height: 42px; border-radius: 8px; padding: 0 20px; font-size: 13px; }
 
+/* A teammate's transcript is read-only here: the teammate is an agent of the
+   host's Team, and continuing it belongs to the host's own conversation view. */
+.message-readonly { margin: 0; border-top: 1px solid var(--line); background: var(--surface); padding: 16px 44px 22px; color: var(--ink-3); font-size: 12px; line-height: 1.7; }
+
+/* ─────────────────── card-to-card calls (intercom) ─────────────────── */
+/* The call button leads the footer's LEFT cluster (`margin-right:auto`, the same
+   place the compare button holds): it is the one action on a card that leaves
+   this canvas for another running session. Icon only, like the 重命名 and 宿主
+   归档 buttons further right — with a label the footer wrapped onto a second
+   line at 310px. Its own selector, not a shared display list: this is a
+   structural display and 铁律 4 says those are never pooled. */
+.card-call-button {
+  display: inline-flex;
+  min-height: 26px;
+  margin-right: auto;
+  border-color: transparent;
+  background: transparent;
+  padding: 0 7px;
+  color: var(--info);
+}
+.card-call-button:hover { border-color: transparent; background: var(--info-bg); color: var(--info); }
+
+/* What this browser tab last did with this card. In memory only: a call is this
+   client's own action, never canvas data (workspaces.json has one writer). */
+.thread-meta .card-call-trace {
+  border-radius: 4px;
+  background: var(--info-bg);
+  padding: 0 6px;
+  color: var(--info);
+  white-space: nowrap;
+}
+.thread-meta .card-call-trace::before { content: none; }
+.thread-meta .card-call-trace.is-failed { background: var(--danger-bg); color: var(--danger); }
+
+/* A turn that arrived over intercom. The head carries a chip because such a
+   card's title is its SENDER, not a question the user asked here. */
+.thread-card-head .call-chip {
+  flex: none;
+  border-radius: 3px;
+  background: var(--info);
+  padding: 0 4px;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: .04em;
+}
+[data-theme='dark'] .thread-card-head .call-chip { color: #16181a; }
+
+/* The picker. `position: fixed` and moved by `positionIntercomPopover()`: it is
+   a dialog about a card, and it has to stay readable while the canvas is panned
+   or zoomed underneath it. */
+.intercom-popover {
+  position: fixed;
+  z-index: 95;
+  left: 0;
+  top: 0;
+  display: grid;
+  width: min(320px, calc(100vw - 24px));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raise);
+  padding: 12px 14px 14px;
+}
+.intercom-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.intercom-head strong { color: var(--ink); font-size: 13px; font-weight: 600; }
+.intercom-head button { display: grid; width: 24px; min-height: 24px; place-items: center; border: 0; background: transparent; padding: 0; color: var(--ink-3); }
+.intercom-head button:hover { background: var(--surface-fill); color: var(--ink); }
+.intercom-head button svg { width: 13px; height: 13px; }
+.intercom-sender { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.6; }
+.intercom-targets { display: grid; max-height: 190px; gap: 3px; overflow-y: auto; }
+.intercom-target {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 3px 8px;
+  text-align: left;
+}
+.intercom-target:hover { border-color: transparent; background: var(--surface-hover); }
+.intercom-target.is-on { border-color: var(--info); background: var(--info-bg); }
+.intercom-target-name { min-width: 0; overflow: hidden; color: var(--ink-1); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.intercom-target-meta { flex: none; color: var(--ink-3); font-family: var(--font-mono); font-size: 10px; white-space: nowrap; }
+.intercom-target.is-on .intercom-target-name { color: var(--info); font-weight: 600; }
+.intercom-empty { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
+.intercom-note-label { display: grid; gap: 5px; }
+.intercom-note-label span { color: var(--ink-2); font-size: 12px; }
+.intercom-note { min-height: 52px; max-height: 120px; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-sunken); padding: 8px 10px; color: var(--ink-1); font-size: 12px; line-height: 1.6; }
+.intercom-warning { margin: 0; border-left: 2px solid var(--warn); padding-left: 8px; color: var(--warn); font-size: 11px; line-height: 1.6; }
+.intercom-error { margin: 0; border-left: 2px solid var(--danger); padding-left: 8px; color: var(--danger); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.intercom-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.intercom-actions button { min-height: 28px; font-size: 12px; }
+
 /* ─────────────────────────── responsive ─────────────────────────── */
 
 @media (max-width: 900px) {
@@ -1189,4 +1368,8 @@ html[data-embedded] {
      animation off, the halo parked at its brightest. */
   .thread-card.is-streaming { animation: none; box-shadow: 0 0 24px 2px var(--stream-glow), var(--shadow-raise); }
   .btw-widget.is-running { animation: none; box-shadow: 0 0 14px 2px var(--btw-glow); }
+  /* The running chip keeps a static ring instead of the pulse: the state must
+     stay visible, not disappear with its motion. */
+  .team-chip.is-running .team-chip-dot { animation: none; box-shadow: 0 0 0 2px var(--info-bg); }
+  .team-widget.is-running .team-dot[data-status='running'] { animation: none; box-shadow: 0 0 0 2px var(--info-bg); }
 }
